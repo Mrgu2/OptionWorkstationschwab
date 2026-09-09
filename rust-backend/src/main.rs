@@ -32,7 +32,7 @@ use crate::{
     live::{LiveManager, option_retry_after_ms},
     models::{CredentialRequest, LiveSessionRequest, OAuthStartRequest},
     replay::{ReplaySnapshotParams, ReplayStore},
-    strategy::{PaperOrderRequest, StrategyRequest, analyze_strategy},
+    strategy::{StrategyRequest, analyze_strategy},
 };
 
 #[derive(Clone)]
@@ -187,7 +187,9 @@ async fn health(State(state): State<AppState>) -> Json<Value> {
         "ok": state.replay.root().is_dir(),
         "engine": "rust",
         "version": env!("CARGO_PKG_VERSION"),
-        "longbridge_sdk": "4.4.1",
+        "market_data_provider": "Schwab",
+        "market_data_api": "Schwab Market Data API v1",
+        "trading_enabled": false,
         "data_root": state.replay.root(),
         "audit_ledger": state.audit.path(),
         "live_connected": connection.connected,
@@ -313,7 +315,7 @@ async fn start_oauth(
         .map_err(ApiError::upstream)
 }
 
-async fn connect_longbridge(
+async fn connect_market_data(
     State(state): State<AppState>,
     Json(credentials): Json<CredentialRequest>,
 ) -> Result<Json<Value>, ApiError> {
@@ -327,7 +329,7 @@ async fn connect_longbridge(
         .map_err(ApiError::upstream)
 }
 
-async fn disconnect_longbridge(State(state): State<AppState>) -> Json<Value> {
+async fn disconnect_market_data(State(state): State<AppState>) -> Json<Value> {
     Json(serde_json::to_value(state.live.disconnect().await).expect("serialize connection status"))
 }
 
@@ -465,101 +467,6 @@ async fn append_audit_record(
         .map_err(ApiError::bad_request)
 }
 
-async fn trade_account(State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
-    state
-        .live
-        .trade_account()
-        .await
-        .map(Json)
-        .map_err(ApiError::upstream)
-}
-
-async fn trade_orders(State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
-    state
-        .live
-        .today_orders()
-        .await
-        .map(Json)
-        .map_err(ApiError::upstream)
-}
-
-async fn submit_paper_orders(
-    State(state): State<AppState>,
-    Json(request): Json<PaperOrderRequest>,
-) -> Result<Json<Value>, ApiError> {
-    if request.strategy.mode != "live" {
-        return Err(ApiError::bad_request(
-            "paper orders require a live strategy",
-        ));
-    }
-    let snapshot = state.live.snapshot().await.map_err(ApiError::conflict)?;
-    if !request
-        .strategy
-        .symbol
-        .eq_ignore_ascii_case(&snapshot.chain.symbol)
-    {
-        return Err(ApiError::conflict(
-            "live symbol changed; create a new preview",
-        ));
-    }
-    let analysis = analyze_strategy(
-        &snapshot.chain,
-        &request.strategy.legs,
-        request.strategy.quantity,
-    )
-    .map_err(ApiError::bad_request)?;
-    if analysis.preview_id != request.preview_id {
-        return Err(ApiError::conflict(
-            "strategy preview is stale; review the latest executable prices",
-        ));
-    }
-    if !analysis.executable {
-        return Err(ApiError::conflict(analysis.blockers.join("; ")));
-    }
-    let result = state
-        .live
-        .submit_paper_orders(
-            &analysis.orders,
-            &analysis.preview_id,
-            &request.confirmation,
-        )
-        .await
-        .map_err(ApiError::upstream)?;
-    let _ = state
-        .audit
-        .append(AuditCaptureRequest {
-            kind: "paper_order_submit".into(),
-            mode: "live".into(),
-            symbol: snapshot.chain.symbol,
-            snapshot_id: Some(snapshot.chain.snapshot_id),
-            payload: json!({"analysis": analysis, "result": result.clone()}),
-        })
-        .await;
-    Ok(Json(result))
-}
-
-async fn cancel_paper_order(
-    State(state): State<AppState>,
-    Path(order_id): Path<String>,
-) -> Result<Json<Value>, ApiError> {
-    let result = state
-        .live
-        .cancel_paper_order(&order_id)
-        .await
-        .map_err(ApiError::upstream)?;
-    let _ = state
-        .audit
-        .append(AuditCaptureRequest {
-            kind: "paper_order_cancel".into(),
-            mode: "live".into(),
-            symbol: "ACCOUNT".into(),
-            snapshot_id: None,
-            payload: result.clone(),
-        })
-        .await;
-    Ok(Json(result))
-}
-
 async fn live_stream(
     State(state): State<AppState>,
     websocket: WebSocketUpgrade,
@@ -626,8 +533,8 @@ fn app(state: AppState, frontend_dist: PathBuf) -> Router {
         .route(
             "/api/connection",
             get(connection_status)
-                .post(connect_longbridge)
-                .delete(disconnect_longbridge),
+                .post(connect_market_data)
+                .delete(disconnect_market_data),
         )
         .route("/api/oauth/status", get(oauth_status))
         .route("/api/oauth/start", post(start_oauth))
@@ -640,15 +547,6 @@ fn app(state: AppState, frontend_dist: PathBuf) -> Router {
             get(audit_records).post(append_audit_record),
         )
         .route("/api/audit/records/{id}", get(audit_record))
-        .route("/api/trade/account", get(trade_account))
-        .route(
-            "/api/trade/orders",
-            get(trade_orders).post(submit_paper_orders),
-        )
-        .route(
-            "/api/trade/orders/{order_id}",
-            axum::routing::delete(cancel_paper_order),
-        )
         .route("/api/live/stream", get(live_stream))
         .fallback_service(ServeDir::new(frontend_dist).not_found_service(ServeFile::new(index)))
         .layer(TraceLayer::new_for_http())
