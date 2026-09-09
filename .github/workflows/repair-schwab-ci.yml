@@ -1,0 +1,179 @@
+name: Repair Schwab CI
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: repair-schwab-ci
+  cancel-in-progress: true
+
+jobs:
+  repair:
+    if: github.event.head_commit.message != 'fix: resolve Schwab CI findings'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Apply deterministic Rust and CI fixes
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace(path, old, new):
+              file = Path(path)
+              text = file.read_text()
+              if old not in text:
+                  raise SystemExit(f"expected block not found in {path}")
+              file.write_text(text.replace(old, new, 1))
+
+          replace(
+              "rust-backend/src/strategy.rs",
+              '''#[derive(Debug, Clone, Deserialize)]
+          pub struct PaperOrderRequest {
+              pub preview_id: String,
+              pub confirmation: String,
+              pub strategy: StrategyRequest,
+          }
+
+          ''',
+              "",
+          )
+
+          replace(
+              "rust-backend/src/schwab.rs",
+              '''    strategy::ExecutionLeg,
+          ''',
+              "",
+          )
+
+          replace(
+              "rust-backend/src/schwab/market.rs",
+              '''    pub async fn trade_account(&self) -> anyhow::Result<Value> {
+              Err(anyhow!(
+                  "Schwab adapter is market-data only; account APIs are disabled"
+              ))
+          }
+
+              pub async fn today_orders(&self) -> anyhow::Result<Value> {
+              Err(anyhow!(
+                  "Schwab adapter is market-data only; order APIs are disabled"
+              ))
+          }
+
+              pub async fn submit_paper_orders(
+              &self,
+              _orders: &[ExecutionLeg],
+              _preview_id: &str,
+              _confirmation: &str,
+          ) -> anyhow::Result<Value> {
+              Err(anyhow!(
+                  "Schwab adapter is market-data only; order submission is disabled"
+              ))
+          }
+
+              pub async fn cancel_paper_order(&self, _order_id: &str) -> anyhow::Result<Value> {
+              Err(anyhow!(
+                  "Schwab adapter is market-data only; order cancellation is disabled"
+              ))
+          }
+
+          ''',
+              "",
+          )
+
+          replace(
+              "rust-backend/src/schwab/parse.rs",
+              '''            if let Some(timestamp) = quote_time {
+                          if as_of.is_none() || as_of.is_some_and(|current| timestamp > current) {
+                              *as_of = Some(timestamp);
+                          }
+                      }
+          ''',
+              '''            if let Some(timestamp) = quote_time
+                          && (as_of.is_none() || as_of.is_some_and(|current| timestamp > current))
+                      {
+                          *as_of = Some(timestamp);
+                      }
+          ''',
+          )
+
+          replace(
+              "rust-backend/src/schwab/http.rs",
+              '''        if bytes[index] == b'%' && index + 2 < bytes.len() {
+                      if let (Some(high), Some(low)) = (hex_value(bytes[index + 1]), hex_value(bytes[index + 2])) {
+                          output.push(high * 16 + low);
+                          index += 3;
+                          continue;
+                      }
+                  }
+          ''',
+              '''        if bytes[index] == b'%' && index + 2 < bytes.len()
+                      && let (Some(high), Some(low)) =
+                          (hex_value(bytes[index + 1]), hex_value(bytes[index + 2]))
+                  {
+                      output.push(high * 16 + low);
+                      index += 3;
+                      continue;
+                  }
+          ''',
+          )
+
+          replace(
+              ".github/workflows/ci.yml",
+              '''      - name: Scan Git history
+                  run: gitleaks git --redact --no-banner --log-level error
+                - run: ./scripts/publication-check.sh
+          ''',
+              '''      - name: Scan Git history
+                  run: gitleaks git --redact --no-banner --log-level error
+                - name: Install ripgrep
+                  run: sudo apt-get update && sudo apt-get install --yes ripgrep
+                - run: ./scripts/publication-check.sh
+          ''',
+          )
+          PY
+
+      - name: Format and validate Rust
+        working-directory: rust-backend
+        run: |
+          cargo fmt
+          cargo test --locked
+          cargo clippy --locked --all-targets -- -D warnings
+
+      - name: Repair and validate frontend dependencies
+        working-directory: frontend
+        run: |
+          npm ci
+          npm audit fix
+          npm run build
+          npm audit --audit-level=high
+
+      - name: Commit validated repairs
+        run: |
+          git config user.name "Mrgu2"
+          git config user.email "86710948+Mrgu2@users.noreply.github.com"
+          git add rust-backend/src/strategy.rs \
+                  rust-backend/src/schwab.rs \
+                  rust-backend/src/schwab/market.rs \
+                  rust-backend/src/schwab/parse.rs \
+                  rust-backend/src/schwab/http.rs \
+                  frontend/package-lock.json \
+                  .github/workflows/ci.yml
+          if git diff --cached --quiet; then
+            echo "No repair changes produced"
+          else
+            git commit -m "fix: resolve Schwab CI findings"
+            git push origin HEAD:main
+          fi
