@@ -357,35 +357,6 @@ impl LiveManager {
         Ok(rows)
     }
 
-    pub async fn trade_account(&self) -> anyhow::Result<Value> {
-        Err(anyhow!(
-            "Schwab adapter is market-data only; account APIs are disabled"
-        ))
-    }
-
-    pub async fn today_orders(&self) -> anyhow::Result<Value> {
-        Err(anyhow!(
-            "Schwab adapter is market-data only; order APIs are disabled"
-        ))
-    }
-
-    pub async fn submit_paper_orders(
-        &self,
-        _orders: &[ExecutionLeg],
-        _preview_id: &str,
-        _confirmation: &str,
-    ) -> anyhow::Result<Value> {
-        Err(anyhow!(
-            "Schwab adapter is market-data only; order submission is disabled"
-        ))
-    }
-
-    pub async fn cancel_paper_order(&self, _order_id: &str) -> anyhow::Result<Value> {
-        Err(anyhow!(
-            "Schwab adapter is market-data only; order cancellation is disabled"
-        ))
-    }
-
     async fn get_json(&self, url: &str, query: &[(&str, &str)]) -> anyhow::Result<Value> {
         let token = self.access_token().await?;
         let mut full_url = url.to_string();
