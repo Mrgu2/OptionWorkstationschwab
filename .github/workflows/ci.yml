@@ -84,6 +84,8 @@ jobs:
           sudo install --mode 0755 /tmp/gitleaks /usr/local/bin/gitleaks
       - name: Scan Git history
         run: gitleaks git --redact --no-banner --log-level error
+      - name: Install ripgrep
+        run: sudo apt-get update && sudo apt-get install --yes ripgrep
       - run: ./scripts/publication-check.sh
 
   licenses:
