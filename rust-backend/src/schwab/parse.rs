@@ -80,10 +80,7 @@ fn collect_side(
     };
 
     for (expiration_key, strikes) in expirations {
-        let date_text = expiration_key
-            .split(':')
-            .next()
-            .unwrap_or(expiration_key);
+        let date_text = expiration_key.split(':').next().unwrap_or(expiration_key);
         let Ok(expiration) = NaiveDate::parse_from_str(date_text, "%Y-%m-%d") else {
             continue;
         };
@@ -119,10 +116,10 @@ fn collect_side(
             let quote_time = ["quoteTimeInLong", "tradeTimeInLong"]
                 .into_iter()
                 .find_map(|key| contract.get(key).and_then(epoch_ms));
-            if let Some(timestamp) = quote_time {
-                if as_of.is_none() || as_of.is_some_and(|current| timestamp > current) {
-                    *as_of = Some(timestamp);
-                }
+            if let Some(timestamp) = quote_time
+                && (as_of.is_none() || as_of.is_some_and(|current| timestamp > current))
+            {
+                *as_of = Some(timestamp);
             }
 
             target
