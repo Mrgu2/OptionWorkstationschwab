@@ -29,27 +29,53 @@ async fn curl_json(
         command.args([
             "--silent",
             "--show-error",
-            "--location",
             "--connect-timeout",
             "5",
             "--max-time",
             "15",
             "--request",
             &method,
+            "--config",
+            "-",
+            "--write-out",
+            "\n%{http_code}",
+            &url,
         ]);
+        command
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
 
+        let mut config = String::new();
         if let Some(token) = bearer {
-            command.args(["--header", &format!("Authorization: Bearer {token}")]);
+            config.push_str(&curl_config_option(
+                "header",
+                &format!("Authorization: Bearer {token}"),
+            ));
         }
         if let Some(credentials) = basic {
-            command.args(["--user", &credentials]);
+            config.push_str(&curl_config_option("user", &credentials));
         }
         for (key, value) in form {
-            command.args(["--data-urlencode", &format!("{key}={value}")]);
+            config.push_str(&curl_config_option(
+                "data-urlencode",
+                &format!("{key}={value}"),
+            ));
         }
-        command.args(["--write-out", "\n%{http_code}", &url]);
 
-        let output = command.output().context("run curl for Schwab API")?;
+        let mut child = command.spawn().context("run curl for Schwab API")?;
+        let mut stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| anyhow!("open curl stdin for Schwab API"))?;
+        stdin
+            .write_all(config.as_bytes())
+            .context("write Schwab curl configuration")?;
+        drop(stdin);
+
+        let output = child
+            .wait_with_output()
+            .context("wait for Schwab curl response")?;
         anyhow::ensure!(
             output.status.success(),
             "curl failed: {}",
@@ -82,6 +108,25 @@ async fn curl_json(
     })
     .await
     .context("join Schwab curl task")?
+}
+
+fn curl_config_option(name: &str, value: &str) -> String {
+    format!("{name} = \"{}\"\n", curl_config_escape(value))
+}
+
+fn curl_config_escape(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len());
+    for character in value.chars() {
+        match character {
+            '\\' => escaped.push_str("\\\\"),
+            '"' => escaped.push_str("\\\""),
+            '\n' => escaped.push_str("\\n"),
+            '\r' => escaped.push_str("\\r"),
+            '\t' => escaped.push_str("\\t"),
+            _ => escaped.push(character),
+        }
+    }
+    escaped
 }
 
 fn extract_authorization_code(value: &str) -> anyhow::Result<String> {
@@ -227,8 +272,8 @@ pub fn option_retry_after_ms(detail: &str) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::{
-        extract_authorization_code, normalize_iv, normalize_us_symbol, percent_decode,
-        percent_encode,
+        curl_config_escape, extract_authorization_code, normalize_iv, normalize_us_symbol,
+        percent_decode, percent_encode,
     };
 
     #[test]
@@ -251,6 +296,11 @@ mod tests {
         assert_eq!(normalize_iv(25.0), Some(0.25));
         assert_eq!(normalize_iv(3.5), Some(0.035));
         assert_eq!(normalize_iv(-999.0), None);
+    }
+
+    #[test]
+    fn escapes_sensitive_values_for_curl_config_stdin() {
+        assert_eq!(curl_config_escape("a\\b\"c\n"), "a\\\\b\\\"c\\n");
     }
 
     #[test]
