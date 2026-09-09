@@ -22,7 +22,6 @@ use crate::{
         Bar, ConnectionStatus, CredentialRequest, LiveFeedInfo, LiveSessionRequest, LiveSnapshot,
         OAuthStatus, RawOptionQuote,
     },
-    strategy::ExecutionLeg,
 };
 
 const API_VERSION: &str = "Schwab Market Data API v1";
