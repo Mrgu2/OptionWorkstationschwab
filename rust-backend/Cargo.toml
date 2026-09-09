@@ -7,6 +7,10 @@ license = "Apache-2.0"
 readme = "../README.md"
 publish = false
 
+[features]
+default = []
+legacy-longbridge = ["dep:longbridge"]
+
 [dependencies]
 anyhow = "1.0"
 arrow-array = "59.1"
@@ -17,7 +21,7 @@ chrono-tz = "0.10"
 dashmap = "6.1"
 futures-util = "0.3"
 hex = "0.4"
-longbridge = "4.4.1"
+longbridge = { version = "4.4.1", optional = true }
 moka = { version = "0.12", features = ["sync"] }
 parquet = { version = "59.1", default-features = false, features = ["arrow", "snap", "zstd"] }
 rust_decimal = "1.39"
@@ -36,6 +40,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 approx = "0.5"
 
 [patch.crates-io]
+# Retained only for the opt-in legacy-longbridge feature. Default builds do not compile Longbridge.
 longbridge-oauth = { path = "../vendor/longbridge-oauth" }
 dotenv = { path = "../vendor/dotenv" }
 paste = { path = "../vendor/paste" }
