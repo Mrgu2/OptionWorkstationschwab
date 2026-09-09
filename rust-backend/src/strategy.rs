@@ -36,13 +36,6 @@ pub struct StrategyRequest {
     pub legs: Vec<StrategyLegInput>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-pub struct PaperOrderRequest {
-    pub preview_id: String,
-    pub confirmation: String,
-    pub strategy: StrategyRequest,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecutionLeg {
     pub symbol: String,
