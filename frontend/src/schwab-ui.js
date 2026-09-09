@@ -12,6 +12,10 @@ const replacements = [
 
 const oauthStyle = document.createElement('style')
 oauthStyle.textContent = `
+  .execution-panel,
+  .paper-confirm-backdrop {
+    display: none !important;
+  }
   .schwab-oauth-complete {
     display: grid;
     gap: 8px;
