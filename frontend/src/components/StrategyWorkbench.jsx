@@ -1,4 +1,4 @@
-import { RefreshCw, Send, ShieldCheck, X } from 'lucide-react'
+import { RefreshCw, ShieldCheck, X } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import Chart from './Chart'
 import { Metric } from './Primitives'
@@ -17,10 +17,7 @@ export default function StrategyWorkbench({
   setQuantity,
   onAnalyze,
   payoffOption,
-  tradeAccount,
-  onPaperSubmit,
   analyzing,
-  paperEligible,
 }) {
   const [elapsed, setElapsed] = useState(0)
   const update = (index, patch) => setLegs((current) => current.map((leg, legIndex) => legIndex === index ? { ...leg, ...patch } : leg))
@@ -57,8 +54,6 @@ export default function StrategyWorkbench({
           <Metric label="最低报价质量" value={analysis.min_quote_quality?.toFixed(0) ?? '--'} detail="组合腿最低质量分" />
         </div>
         {analysis.blockers?.length > 0 && <div className="risk-blockers">{analysis.blockers.map((blocker) => <span key={blocker}>{blocker}</span>)}</div>}
-        <div className="execution-mode-note">{analysis.execution_mode || 'paper_sequential_guarded'} · 多腿不是原子撮合</div>
-        <button className="paper-submit" disabled={!analysis.executable || !tradeAccount?.execution_enabled || !paperEligible} onClick={onPaperSubmit}><Send size={13} />{!paperEligible ? '仅实时模式可提交' : tradeAccount?.execution_enabled ? '提交纸面组合' : '纸面执行已锁定'}</button>
       </>}
     </div>
     <div className="strategy-visuals">
