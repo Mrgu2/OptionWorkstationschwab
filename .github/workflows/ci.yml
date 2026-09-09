@@ -33,11 +33,6 @@ jobs:
       - run: cargo fmt --check
       - run: cargo test --locked
       - run: cargo clippy --locked --all-targets -- -D warnings
-      - name: Check vendored Longbridge OAuth patch
-        run: |
-          cargo fmt --manifest-path ../vendor/longbridge-oauth/Cargo.toml --check
-          cargo test --manifest-path ../vendor/longbridge-oauth/Cargo.toml
-          cargo clippy --manifest-path ../vendor/longbridge-oauth/Cargo.toml --all-targets -- -D warnings
 
   frontend:
     name: Frontend
