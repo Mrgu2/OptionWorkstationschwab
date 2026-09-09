@@ -50,7 +50,7 @@ struct PendingOAuth {
     redirect_uri: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 struct ActiveUniverse {
     symbol: String,
     selected_expiration: NaiveDate,
