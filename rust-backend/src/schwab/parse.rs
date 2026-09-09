@@ -2,10 +2,20 @@
 struct ParsedChain {
     spot: f64,
     as_of: Option<DateTime<Utc>>,
+    spot_as_of: Option<DateTime<Utc>>,
+    delayed: bool,
+    truncated: bool,
     by_expiration: BTreeMap<NaiveDate, Vec<RawOptionQuote>>,
 }
 
 fn parse_chain_payload(active: &ActiveUniverse, payload: &Value) -> anyhow::Result<ParsedChain> {
+    if let Some(status) = payload.get("status").and_then(Value::as_str) {
+        anyhow::ensure!(
+            status.eq_ignore_ascii_case("SUCCESS"),
+            "Schwab option chain status: {status}"
+        );
+    }
+
     let spot = payload
         .get("underlyingPrice")
         .and_then(number)
@@ -14,6 +24,20 @@ fn parse_chain_payload(active: &ActiveUniverse, payload: &Value) -> anyhow::Resu
         .or_else(|| payload.pointer("/underlying/quote/lastPrice").and_then(number))
         .ok_or_else(|| anyhow!("Schwab option chain is missing underlying price"))?;
     anyhow::ensure!(spot.is_finite() && spot > 0.0, "invalid Schwab underlying price");
+
+    let spot_as_of = ["/underlying/quoteTime", "/underlying/tradeTime"]
+        .into_iter()
+        .filter_map(|pointer| payload.pointer(pointer).and_then(epoch_ms))
+        .max();
+    let delayed = payload
+        .get("isDelayed")
+        .and_then(Value::as_bool)
+        .or_else(|| payload.pointer("/underlying/delayed").and_then(Value::as_bool))
+        .unwrap_or(false);
+    let truncated = payload
+        .get("isChainTruncated")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
 
     let selected: HashMap<NaiveDate, ()> = active
         .expirations
@@ -55,12 +79,15 @@ fn parse_chain_payload(active: &ActiveUniverse, payload: &Value) -> anyhow::Resu
 
     anyhow::ensure!(
         by_expiration.values().any(|rows| !rows.is_empty()),
-        "Schwab option chain returned no contracts inside the configured window"
+        "Schwab option chain returned no standard contracts inside the configured window"
     );
 
     Ok(ParsedChain {
         spot,
         as_of,
+        spot_as_of,
+        delayed,
+        truncated,
         by_expiration,
     })
 }
@@ -92,7 +119,10 @@ fn collect_side(
             continue;
         };
         for (strike_key, contracts) in strikes {
-            let Some(contract) = contracts.as_array().and_then(|rows| rows.first()) else {
+            let Some(contract) = contracts
+                .as_array()
+                .and_then(|rows| rows.iter().find(|contract| standard_contract(contract)))
+            else {
                 continue;
             };
             let strike = contract
@@ -153,13 +183,64 @@ fn collect_side(
                         .get("volatility")
                         .and_then(number)
                         .and_then(normalize_iv),
-                    sdk_delta: contract.get("delta").and_then(number),
-                    sdk_gamma: contract.get("gamma").and_then(number),
-                    sdk_theta: contract.get("theta").and_then(number),
-                    sdk_vega: contract.get("vega").and_then(number),
+                    sdk_delta: contract
+                        .get("delta")
+                        .and_then(number)
+                        .and_then(provider_delta),
+                    sdk_gamma: contract
+                        .get("gamma")
+                        .and_then(number)
+                        .and_then(provider_gamma),
+                    sdk_theta: contract
+                        .get("theta")
+                        .and_then(number)
+                        .and_then(provider_greek),
+                    sdk_vega: contract
+                        .get("vega")
+                        .and_then(number)
+                        .and_then(provider_vega),
                 });
         }
     }
+}
+
+fn standard_contract(contract: &Value) -> bool {
+    if contract
+        .get("nonStandard")
+        .or_else(|| contract.get("isNonStandard"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        return false;
+    }
+    if contract
+        .get("mini")
+        .or_else(|| contract.get("isMini"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        return false;
+    }
+    contract
+        .get("multiplier")
+        .and_then(number)
+        .is_none_or(|multiplier| (multiplier - 100.0).abs() <= 0.01)
+}
+
+fn provider_greek(value: f64) -> Option<f64> {
+    (-900.0..900.0).contains(&value).then_some(value)
+}
+
+fn provider_delta(value: f64) -> Option<f64> {
+    provider_greek(value).filter(|value| (-1.001..=1.001).contains(value))
+}
+
+fn provider_gamma(value: f64) -> Option<f64> {
+    provider_greek(value).filter(|value| *value >= 0.0)
+}
+
+fn provider_vega(value: f64) -> Option<f64> {
+    provider_greek(value).filter(|value| *value >= 0.0)
 }
 
 fn trim_around_spot(rows: &mut Vec<RawOptionQuote>, spot: f64, limit: usize) {
@@ -174,4 +255,87 @@ fn trim_around_spot(rows: &mut Vec<RawOptionQuote>, spot: f64, limit: usize) {
             .total_cmp(&right.strike)
             .then_with(|| left.right.cmp(&right.right))
     });
+}
+
+#[cfg(test)]
+mod parse_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn active() -> ActiveUniverse {
+        let expiration = NaiveDate::from_ymd_opt(2030, 1, 18).unwrap();
+        ActiveUniverse {
+            symbol: "SPY".into(),
+            selected_expiration: expiration,
+            expirations: vec![expiration],
+            max_contracts: 100,
+            moneyness_window: 0.20,
+            pricing_mode: "micro".into(),
+            dealer_model: "classic".into(),
+        }
+    }
+
+    #[test]
+    fn selects_standard_contract_and_filters_provider_sentinels() {
+        let payload = json!({
+            "status": "SUCCESS",
+            "underlyingPrice": 100.0,
+            "isDelayed": true,
+            "isChainTruncated": true,
+            "underlying": {
+                "quoteTime": 1_700_000_000_000_i64,
+                "delayed": true
+            },
+            "callExpDateMap": {
+                "2030-01-18:100": {
+                    "100.0": [
+                        {
+                            "symbol": "SPY MINI",
+                            "strikePrice": 100.0,
+                            "mini": true,
+                            "multiplier": 10.0,
+                            "volatility": 50.0
+                        },
+                        {
+                            "symbol": "SPY STD",
+                            "strikePrice": 100.0,
+                            "mini": false,
+                            "nonStandard": false,
+                            "multiplier": 100.0,
+                            "bid": 1.0,
+                            "ask": 1.2,
+                            "openInterest": 42,
+                            "volatility": 3.5,
+                            "delta": -999.0,
+                            "gamma": 0.012,
+                            "theta": -0.04,
+                            "vega": 0.08,
+                            "quoteTimeInLong": 1_700_000_001_000_i64
+                        }
+                    ]
+                }
+            },
+            "putExpDateMap": {}
+        });
+
+        let parsed = parse_chain_payload(&active(), &payload).unwrap();
+        let rows = parsed.by_expiration.values().next().unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].symbol, "SPY STD");
+        assert_eq!(rows[0].sdk_iv, Some(0.035));
+        assert_eq!(rows[0].sdk_delta, None);
+        assert_eq!(rows[0].sdk_gamma, Some(0.012));
+        assert!(parsed.delayed);
+        assert!(parsed.truncated);
+        assert_eq!(
+            parsed.spot_as_of.unwrap().timestamp_millis(),
+            1_700_000_000_000
+        );
+    }
+
+    #[test]
+    fn rejects_non_success_chain_status() {
+        let payload = json!({"status": "FAILED", "underlyingPrice": 100.0});
+        assert!(parse_chain_payload(&active(), &payload).is_err());
+    }
 }
