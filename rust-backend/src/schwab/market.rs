@@ -71,6 +71,9 @@ impl LiveManager {
             state.status.active_symbol = Some(symbol);
             state.status.subscribed_contracts = snapshot.feed.subscribed_contracts;
             state.status.last_event_at = Some(snapshot.feed.as_of.clone());
+            state.status.last_snapshot_at = Some(snapshot.chain.timestamp.clone());
+            state.status.last_snapshot_sequence = Some(snapshot.sequence);
+            state.status.latency_ms = Some(snapshot.feed.latency_ms);
             state.status.error = None;
         }
         self.notify();
@@ -93,9 +96,20 @@ impl LiveManager {
     ) -> anyhow::Result<LiveSnapshot> {
         let payload = self.fetch_chain(active).await?;
         let parsed = parse_chain_payload(active, &payload)?;
-        let now = Utc::now();
-        let as_of = parsed.as_of.unwrap_or(now);
-        let spot_age_ms = (now - as_of).num_milliseconds().max(0);
+        let calculation_as_of = Utc::now();
+        let data_as_of = parsed
+            .as_of
+            .or(parsed.spot_as_of)
+            .unwrap_or(calculation_as_of);
+        let spot_as_of = parsed
+            .spot_as_of
+            .or(parsed.as_of)
+            .unwrap_or(calculation_as_of);
+        let spot_age_ms = (calculation_as_of - spot_as_of)
+            .num_milliseconds()
+            .max(0);
+        let stale_after_ms = self.refresh_ms * 3;
+        let data_is_fresh = !parsed.delayed && spot_age_ms <= stale_after_ms as i64;
         let mut chains = Vec::new();
 
         for expiration in &active.expirations {
@@ -117,11 +131,12 @@ impl LiveManager {
                 .filter(|quote| quote.open_interest > 0 || quote.sdk_iv.is_some())
                 .count();
             let total = quotes.len().max(1) as f64;
+            let quote_coverage = quote_contracts as f64 / total * 100.0;
 
             chains.push(build_chain(ChainBuild {
                 symbol: &active.symbol,
                 spot: parsed.spot,
-                as_of,
+                as_of: calculation_as_of,
                 expiration: *expiration,
                 quotes: &quotes,
                 pricing_mode: &active.pricing_mode,
@@ -131,8 +146,8 @@ impl LiveManager {
                 quote_interval: "REST refresh",
                 oi_frequency: "snapshot",
                 prefer_sdk_greeks: true,
-                quote_coverage: quote_contracts as f64 / total * 100.0,
-                fresh_quote_coverage: quote_contracts as f64 / total * 100.0,
+                quote_coverage,
+                fresh_quote_coverage: if data_is_fresh { quote_coverage } else { 0.0 },
                 metadata_coverage: metadata_contracts as f64 / total * 100.0,
                 spot_age_ms: Some(spot_age_ms),
             })?);
@@ -143,7 +158,7 @@ impl LiveManager {
             .find(|chain| chain.expiration == active.selected_expiration.to_string())
             .cloned()
             .ok_or_else(|| anyhow!("selected expiration has no usable Schwab quotes"))?;
-        let surface = build_surface(&active.symbol, &chains, as_of);
+        let surface = build_surface(&active.symbol, &chains, calculation_as_of);
 
         let bars = if include_bars {
             self.minute_bars(&active.symbol).await.unwrap_or_default()
@@ -173,8 +188,19 @@ impl LiveManager {
             .count();
         let total = subscribed_contracts.max(1) as f64;
         let quote_coverage_pct = quote_contracts as f64 / total * 100.0;
+        let fresh_quote_coverage_pct = if data_is_fresh {
+            quote_coverage_pct
+        } else {
+            0.0
+        };
         let metadata_coverage_pct = metadata_contracts as f64 / total * 100.0;
-        let quality_state = if quote_coverage_pct < 80.0 {
+        let quality_state = if parsed.delayed {
+            "delayed_market_data"
+        } else if parsed.truncated {
+            "truncated_chain"
+        } else if !data_is_fresh {
+            "stale_market_data"
+        } else if quote_coverage_pct < 80.0 {
             "degraded_quotes"
         } else if metadata_coverage_pct < 80.0 {
             "waiting_metadata"
@@ -196,11 +222,11 @@ impl LiveManager {
                 quote_contracts,
                 metadata_contracts,
                 quote_coverage_pct: round2(quote_coverage_pct),
-                fresh_quote_coverage_pct: round2(quote_coverage_pct),
+                fresh_quote_coverage_pct: round2(fresh_quote_coverage_pct),
                 metadata_coverage_pct: round2(metadata_coverage_pct),
                 subscription_limit: COMPAT_CONTRACT_LIMIT,
-                as_of: as_of.to_rfc3339(),
-                stale_after_ms: self.refresh_ms * 3,
+                as_of: data_as_of.to_rfc3339(),
+                stale_after_ms,
                 latency_ms: spot_age_ms,
                 quality_state: quality_state.into(),
             },
@@ -282,31 +308,7 @@ impl LiveManager {
             .await
             .context("load Schwab one minute price history")?;
 
-        let today_et = Utc::now().with_timezone(&New_York).date_naive();
-        Ok(payload
-            .get("candles")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter_map(|row| {
-                let timestamp = epoch_ms(row.get("datetime")?)?;
-                if timestamp.with_timezone(&New_York).date_naive() != today_et {
-                    return None;
-                }
-                let close = number(row.get("close")?)?;
-                let et = timestamp.with_timezone(&New_York);
-                Some(Bar {
-                    time: et.format("%H:%M").to_string(),
-                    timestamp: timestamp.to_rfc3339(),
-                    open: row.get("open").and_then(number).unwrap_or(close),
-                    high: row.get("high").and_then(number).unwrap_or(close),
-                    low: row.get("low").and_then(number).unwrap_or(close),
-                    close,
-                    volume: row.get("volume").and_then(integer).unwrap_or_default(),
-                    vwap: close,
-                })
-            })
-            .collect())
+        Ok(minute_bars_from_payload(&payload))
     }
 
     pub async fn daily_closes(&self, count: usize) -> anyhow::Result<Vec<(String, f64)>> {
@@ -423,5 +425,119 @@ impl LiveManager {
         auth.refresh_token = refreshed.refresh_token.or(Some(refresh_token));
         auth.expires_at = Utc::now() + chrono::Duration::seconds(refreshed.expires_in.max(60));
         Ok(auth.access_token.clone())
+    }
+}
+
+fn minute_bars_from_payload(payload: &Value) -> Vec<Bar> {
+    #[derive(Clone)]
+    struct Candle {
+        timestamp: DateTime<Utc>,
+        open: f64,
+        high: f64,
+        low: f64,
+        close: f64,
+        volume: i64,
+    }
+
+    let mut candles: Vec<Candle> = payload
+        .get("candles")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|row| {
+            let timestamp = epoch_ms(row.get("datetime")?)?;
+            let close = number(row.get("close")?)?;
+            Some(Candle {
+                timestamp,
+                open: row.get("open").and_then(number).unwrap_or(close),
+                high: row.get("high").and_then(number).unwrap_or(close),
+                low: row.get("low").and_then(number).unwrap_or(close),
+                close,
+                volume: row.get("volume").and_then(integer).unwrap_or_default().max(0),
+            })
+        })
+        .collect();
+
+    let Some(latest_date) = candles
+        .iter()
+        .map(|candle| candle.timestamp.with_timezone(&New_York).date_naive())
+        .max()
+    else {
+        return Vec::new();
+    };
+    candles.retain(|candle| {
+        candle.timestamp.with_timezone(&New_York).date_naive() == latest_date
+    });
+    candles.sort_by_key(|candle| candle.timestamp);
+
+    let mut cumulative_volume = 0_i64;
+    let mut cumulative_price_volume = 0.0;
+    candles
+        .into_iter()
+        .map(|candle| {
+            let typical = (candle.high + candle.low + candle.close) / 3.0;
+            if candle.volume > 0 {
+                cumulative_volume += candle.volume;
+                cumulative_price_volume += typical * candle.volume as f64;
+            }
+            let vwap = if cumulative_volume > 0 {
+                cumulative_price_volume / cumulative_volume as f64
+            } else {
+                candle.close
+            };
+            let et = candle.timestamp.with_timezone(&New_York);
+            Bar {
+                time: et.format("%H:%M").to_string(),
+                timestamp: candle.timestamp.to_rfc3339(),
+                open: candle.open,
+                high: candle.high,
+                low: candle.low,
+                close: candle.close,
+                volume: candle.volume,
+                vwap,
+            }
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod market_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn minute_bars_use_latest_available_session_and_cumulative_vwap() {
+        let thursday = New_York
+            .with_ymd_and_hms(2026, 9, 3, 9, 30, 0)
+            .single()
+            .unwrap()
+            .with_timezone(&Utc)
+            .timestamp_millis();
+        let friday_open = New_York
+            .with_ymd_and_hms(2026, 9, 4, 9, 30, 0)
+            .single()
+            .unwrap()
+            .with_timezone(&Utc)
+            .timestamp_millis();
+        let friday_next = New_York
+            .with_ymd_and_hms(2026, 9, 4, 9, 31, 0)
+            .single()
+            .unwrap()
+            .with_timezone(&Utc)
+            .timestamp_millis();
+        let payload = json!({
+            "candles": [
+                {"datetime": thursday, "open": 90, "high": 91, "low": 89, "close": 90, "volume": 50},
+                {"datetime": friday_open, "open": 100, "high": 102, "low": 98, "close": 100, "volume": 100},
+                {"datetime": friday_next, "open": 102, "high": 104, "low": 100, "close": 102, "volume": 300}
+            ]
+        });
+
+        let bars = minute_bars_from_payload(&payload);
+        assert_eq!(bars.len(), 2);
+        assert_eq!(bars[0].time, "09:30");
+        assert_eq!(bars[1].time, "09:31");
+        assert!((bars[0].vwap - 100.0).abs() < 1e-9);
+        assert!((bars[1].vwap - 101.5).abs() < 1e-9);
     }
 }
