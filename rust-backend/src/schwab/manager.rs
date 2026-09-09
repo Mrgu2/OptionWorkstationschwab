@@ -228,7 +228,8 @@ impl LiveManager {
 
             loop {
                 interval.tick().await;
-                if let Some(active) = manager.state.read().await.active.clone() {
+                let active = { manager.state.read().await.active.clone() };
+                if let Some(active) = active {
                     match manager.refresh_snapshot(&active, false).await {
                         Ok(snapshot) => {
                             let mut state = manager.state.write().await;
