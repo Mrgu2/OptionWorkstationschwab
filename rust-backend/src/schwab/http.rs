@@ -125,17 +125,16 @@ fn normalize_us_symbol(value: &str) -> anyhow::Result<String> {
     anyhow::ensure!(
         !clean.is_empty()
             && clean.len() <= 20
-            && clean
-                .chars()
-                .all(|character| character.is_ascii_alphanumeric()
-                    || matches!(character, '.' | '-')),
+            && clean.chars().all(|character| {
+                character.is_ascii_alphanumeric() || matches!(character, '.' | '-' | '/' | '$')
+            }),
         "invalid symbol"
     );
     Ok(clean)
 }
 
 fn normalize_iv(value: f64) -> Option<f64> {
-    let normalized = if value > 4.0 { value / 100.0 } else { value };
+    let normalized = value / 100.0;
     (0.001..=4.0).contains(&normalized).then_some(normalized)
 }
 
@@ -243,11 +242,15 @@ mod tests {
     #[test]
     fn normalizes_symbols_for_schwab() {
         assert_eq!(normalize_us_symbol("spy.us").unwrap(), "SPY");
+        assert_eq!(normalize_us_symbol("$spx").unwrap(), "$SPX");
+        assert_eq!(normalize_us_symbol("brk/b").unwrap(), "BRK/B");
     }
 
     #[test]
-    fn normalizes_percent_iv() {
+    fn normalizes_schwab_percent_iv() {
         assert_eq!(normalize_iv(25.0), Some(0.25));
+        assert_eq!(normalize_iv(3.5), Some(0.035));
+        assert_eq!(normalize_iv(-999.0), None);
     }
 
     #[test]
