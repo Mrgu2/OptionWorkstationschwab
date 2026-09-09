@@ -12,6 +12,7 @@ const replacements = [
 
 const oauthStyle = document.createElement('style')
 oauthStyle.textContent = `
+  .credential-form,
   .execution-panel,
   .paper-confirm-backdrop {
     display: none !important;
