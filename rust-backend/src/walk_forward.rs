@@ -289,7 +289,7 @@ fn with_window(candidate: &BacktestRequest, start: &str, end: &str) -> BacktestR
 
 fn selection_score(stats: &BacktestStats, metric: &str) -> f64 {
     match metric {
-        "profit_factor" => stats.profit_factor.unwrap_or_else(|| {
+        "profit_factor" => stats.profit_factor.unwrap_or({
             if stats.wins > 0 && stats.losses == 0 {
                 f64::MAX
             } else {
