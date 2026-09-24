@@ -65,20 +65,43 @@ pub struct AttributionReport {
     pub caveats: Vec<String>,
 }
 
-fn default_quantity() -> u32 { 1 }
-fn default_pricing_mode() -> String { "micro".into() }
-fn default_dealer_model() -> String { "classic".into() }
+fn default_quantity() -> u32 {
+    1
+}
+fn default_pricing_mode() -> String {
+    "micro".into()
+}
+fn default_dealer_model() -> String {
+    "classic".into()
+}
 
-pub fn attribute(store: &ReplayStore, request: &AttributionRequest) -> anyhow::Result<AttributionReport> {
-    anyhow::ensure!(!request.legs.is_empty() && request.legs.len() <= 8, "attribution requires 1-8 legs");
-    anyhow::ensure!((1..=20).contains(&request.quantity), "quantity must be between 1 and 20");
+pub fn attribute(
+    store: &ReplayStore,
+    request: &AttributionRequest,
+) -> anyhow::Result<AttributionReport> {
+    anyhow::ensure!(
+        !request.legs.is_empty() && request.legs.len() <= 8,
+        "attribution requires 1-8 legs"
+    );
+    anyhow::ensure!(
+        (1..=20).contains(&request.quantity),
+        "quantity must be between 1 and 20"
+    );
     let entry = store.chain(
-        &request.symbol, &request.entry_date, &request.entry_minute, &request.expiration,
-        &request.pricing_mode, &request.dealer_model,
+        &request.symbol,
+        &request.entry_date,
+        &request.entry_minute,
+        &request.expiration,
+        &request.pricing_mode,
+        &request.dealer_model,
     )?;
     let exit = store.chain(
-        &request.symbol, &request.exit_date, &request.exit_minute, &request.expiration,
-        &request.pricing_mode, &request.dealer_model,
+        &request.symbol,
+        &request.exit_date,
+        &request.exit_minute,
+        &request.expiration,
+        &request.pricing_mode,
+        &request.dealer_model,
     )?;
     let elapsed = elapsed_days(&request.entry_date, &request.exit_date)?;
     attribute_chains(&entry, &exit, &request.legs, request.quantity, elapsed)
@@ -95,16 +118,33 @@ fn attribute_chains(
     let mut rows = Vec::new();
     for leg in legs {
         let entry_row = resolve_row(entry, leg)?;
-        let exit_row = exit.rows.iter().find(|row| row.symbol == entry_row.symbol)
-            .ok_or_else(|| anyhow::anyhow!("exit snapshot missing contract {}", entry_row.symbol))?;
-        let sign = if leg.side.eq_ignore_ascii_case("BUY") { 1.0 } else if leg.side.eq_ignore_ascii_case("SELL") { -1.0 } else {
+        let exit_row = exit
+            .rows
+            .iter()
+            .find(|row| row.symbol == entry_row.symbol)
+            .ok_or_else(|| {
+                anyhow::anyhow!("exit snapshot missing contract {}", entry_row.symbol)
+            })?;
+        let sign = if leg.side.eq_ignore_ascii_case("BUY") {
+            1.0
+        } else if leg.side.eq_ignore_ascii_case("SELL") {
+            -1.0
+        } else {
             anyhow::bail!("invalid side {}", leg.side)
         };
         let contracts = leg.ratio as f64 * quantity as f64;
         let multiplier = sign * contracts * 100.0;
 
-        let entry_exec = if sign > 0.0 { entry_row.ask } else { entry_row.bid };
-        let exit_exec = if sign > 0.0 { exit_row.bid } else { exit_row.ask };
+        let entry_exec = if sign > 0.0 {
+            entry_row.ask
+        } else {
+            entry_row.bid
+        };
+        let exit_exec = if sign > 0.0 {
+            exit_row.bid
+        } else {
+            exit_row.ask
+        };
         let realized_pnl = multiplier * (exit_exec - entry_exec);
         let delta_effect = multiplier * entry_row.delta * ds;
         let gamma_effect = multiplier * 0.5 * entry_row.gamma * ds * ds;
@@ -168,13 +208,23 @@ fn attribute_chains(
     })
 }
 
-fn resolve_row<'a>(chain: &'a ChainSnapshot, leg: &StrategyLegInput) -> anyhow::Result<&'a ChainRow> {
+fn resolve_row<'a>(
+    chain: &'a ChainSnapshot,
+    leg: &StrategyLegInput,
+) -> anyhow::Result<&'a ChainRow> {
     if let Some(symbol) = leg.symbol.as_deref() {
-        return chain.rows.iter().find(|row| row.symbol == symbol)
+        return chain
+            .rows
+            .iter()
+            .find(|row| row.symbol == symbol)
             .ok_or_else(|| anyhow::anyhow!("contract not found: {symbol}"));
     }
-    chain.rows.iter()
-        .find(|row| (row.strike - leg.strike).abs() < 1e-6 && row.right.eq_ignore_ascii_case(&leg.right))
+    chain
+        .rows
+        .iter()
+        .find(|row| {
+            (row.strike - leg.strike).abs() < 1e-6 && row.right.eq_ignore_ascii_case(&leg.right)
+        })
         .ok_or_else(|| anyhow::anyhow!("contract not found: {} {}", leg.right, leg.strike))
 }
 

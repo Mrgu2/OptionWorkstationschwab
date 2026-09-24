@@ -54,7 +54,8 @@ pub fn build(records: Vec<AuditRecord>, symbol: Option<&str>) -> JournalReplay {
         notes: vec![
             "events are returned in verified ledger order".into(),
             "snapshot IDs preserve the link to the market state captured at decision time".into(),
-            "journal replay reflects recorded events only and does not fabricate missing decisions".into(),
+            "journal replay reflects recorded events only and does not fabricate missing decisions"
+                .into(),
         ],
     }
 }
@@ -75,7 +76,10 @@ mod tests {
             record_hash: format!("hash-{id}"),
             payload: serde_json::json!({}),
         };
-        let output = build(vec![record("a", "SPY"), record("b", "QQQ"), record("c", "SPY")], Some("spy"));
+        let output = build(
+            vec![record("a", "SPY"), record("b", "QQQ"), record("c", "SPY")],
+            Some("spy"),
+        );
         assert_eq!(output.event_count, 2);
         assert_eq!(output.events[0].id, "a");
         assert_eq!(output.events[1].id, "c");

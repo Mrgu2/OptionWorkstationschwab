@@ -490,11 +490,13 @@ async fn journal_replay(
         .audit
         .recent_records(query.limit)
         .await
-        .and_then(|records| serde_json::to_value(build_journal(records, query.symbol.as_deref())).map_err(anyhow::Error::from))
+        .and_then(|records| {
+            serde_json::to_value(build_journal(records, query.symbol.as_deref()))
+                .map_err(anyhow::Error::from)
+        })
         .map(Json)
         .map_err(ApiError::bad_request)
 }
-
 
 async fn audit_records(
     State(state): State<AppState>,

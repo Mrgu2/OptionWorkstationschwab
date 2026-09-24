@@ -91,31 +91,79 @@ pub struct BacktestReport {
     pub trades: Vec<BacktestTrade>,
 }
 
-fn default_ratio() -> u32 { 1 }
-fn default_entry_minute() -> String { "10:00".into() }
-fn default_exit_minute() -> String { "15:45".into() }
-fn default_hold_days() -> usize { 1 }
-fn default_target_dte() -> i64 { 14 }
-fn default_quantity() -> u32 { 1 }
-fn default_pricing_mode() -> String { "micro".into() }
-fn default_dealer_model() -> String { "classic".into() }
+fn default_ratio() -> u32 {
+    1
+}
+fn default_entry_minute() -> String {
+    "10:00".into()
+}
+fn default_exit_minute() -> String {
+    "15:45".into()
+}
+fn default_hold_days() -> usize {
+    1
+}
+fn default_target_dte() -> i64 {
+    14
+}
+fn default_quantity() -> u32 {
+    1
+}
+fn default_pricing_mode() -> String {
+    "micro".into()
+}
+fn default_dealer_model() -> String {
+    "classic".into()
+}
 
-pub fn run_backtest(store: &ReplayStore, request: &BacktestRequest) -> anyhow::Result<BacktestReport> {
-    anyhow::ensure!(!request.legs.is_empty() && request.legs.len() <= 8, "backtest requires 1-8 legs");
-    anyhow::ensure!((1..=20).contains(&request.quantity), "quantity must be between 1 and 20");
-    anyhow::ensure!(request.hold_trading_days >= 1 && request.hold_trading_days <= 60, "hold_trading_days must be between 1 and 60");
-    anyhow::ensure!((0..=1000).contains(&request.target_dte), "target_dte must be between 0 and 1000");
+pub fn run_backtest(
+    store: &ReplayStore,
+    request: &BacktestRequest,
+) -> anyhow::Result<BacktestReport> {
+    anyhow::ensure!(
+        !request.legs.is_empty() && request.legs.len() <= 8,
+        "backtest requires 1-8 legs"
+    );
+    anyhow::ensure!(
+        (1..=20).contains(&request.quantity),
+        "quantity must be between 1 and 20"
+    );
+    anyhow::ensure!(
+        request.hold_trading_days >= 1 && request.hold_trading_days <= 60,
+        "hold_trading_days must be between 1 and 60"
+    );
+    anyhow::ensure!(
+        (0..=1000).contains(&request.target_dte),
+        "target_dte must be between 0 and 1000"
+    );
     for leg in &request.legs {
-        anyhow::ensure!(matches!(leg.right.to_uppercase().as_str(), "CALL" | "PUT"), "invalid leg right");
-        anyhow::ensure!(matches!(leg.side.to_uppercase().as_str(), "BUY" | "SELL"), "invalid leg side");
-        anyhow::ensure!((0.01..=0.99).contains(&leg.target_delta.abs()), "target_delta must be between 0.01 and 0.99");
-        anyhow::ensure!((1..=20).contains(&leg.ratio), "leg ratio must be between 1 and 20");
+        anyhow::ensure!(
+            matches!(leg.right.to_uppercase().as_str(), "CALL" | "PUT"),
+            "invalid leg right"
+        );
+        anyhow::ensure!(
+            matches!(leg.side.to_uppercase().as_str(), "BUY" | "SELL"),
+            "invalid leg side"
+        );
+        anyhow::ensure!(
+            (0.01..=0.99).contains(&leg.target_delta.abs()),
+            "target_delta must be between 0.01 and 0.99"
+        );
+        anyhow::ensure!(
+            (1..=20).contains(&leg.ratio),
+            "leg ratio must be between 1 and 20"
+        );
     }
 
     let symbol = store.validate_symbol(&request.symbol)?;
     let mut dates = store.dates(&symbol);
     dates.sort();
-    dates.retain(|date| request.start_date.as_ref().is_none_or(|start| date >= start));
+    dates.retain(|date| {
+        request
+            .start_date
+            .as_ref()
+            .is_none_or(|start| date >= start)
+    });
     dates.retain(|date| request.end_date.as_ref().is_none_or(|end| date <= end));
 
     let mut trades = Vec::new();
@@ -123,13 +171,17 @@ pub fn run_backtest(store: &ReplayStore, request: &BacktestRequest) -> anyhow::R
 
     for (index, entry_date) in dates.iter().enumerate() {
         let exit_index = index + request.hold_trading_days;
-        if exit_index >= dates.len() { break; }
+        if exit_index >= dates.len() {
+            break;
+        }
         let exit_date = &dates[exit_index];
 
         let expiration = match select_expiration(store, &symbol, entry_date, request.target_dte) {
             Some(value) => value,
             None => {
-                skipped.push(format!("{entry_date}: no usable expiration near target DTE"));
+                skipped.push(format!(
+                    "{entry_date}: no usable expiration near target DTE"
+                ));
                 continue;
             }
         };
@@ -156,7 +208,8 @@ pub fn run_backtest(store: &ReplayStore, request: &BacktestRequest) -> anyhow::R
                 continue;
             }
         };
-        let entry_analysis = match analyze_strategy(&entry_chain, &selected_legs, request.quantity) {
+        let entry_analysis = match analyze_strategy(&entry_chain, &selected_legs, request.quantity)
+        {
             Ok(value) => value,
             Err(error) => {
                 skipped.push(format!("{entry_date}: entry analysis failed: {error}"));
@@ -174,14 +227,18 @@ pub fn run_backtest(store: &ReplayStore, request: &BacktestRequest) -> anyhow::R
         ) {
             Ok(value) => value,
             Err(error) => {
-                skipped.push(format!("{entry_date}: exit chain unavailable on {exit_date}: {error}"));
+                skipped.push(format!(
+                    "{entry_date}: exit chain unavailable on {exit_date}: {error}"
+                ));
                 continue;
             }
         };
         let exit_analysis = match analyze_strategy(&exit_chain, &selected_legs, request.quantity) {
             Ok(value) => value,
             Err(error) => {
-                skipped.push(format!("{entry_date}: exit analysis failed on {exit_date}: {error}"));
+                skipped.push(format!(
+                    "{entry_date}: exit analysis failed on {exit_date}: {error}"
+                ));
                 continue;
             }
         };
@@ -203,7 +260,13 @@ pub fn run_backtest(store: &ReplayStore, request: &BacktestRequest) -> anyhow::R
             entry_atm_iv: entry_chain.metrics.atm_iv,
             entry_net_gex: entry_chain.metrics.net_gex,
             entry_gamma_flip: entry_chain.metrics.gamma_flip,
-            spot_vs_gamma_flip: entry_chain.metrics.gamma_flip.map(|flip| if entry_chain.spot >= flip { "above".into() } else { "below".into() }),
+            spot_vs_gamma_flip: entry_chain.metrics.gamma_flip.map(|flip| {
+                if entry_chain.spot >= flip {
+                    "above".into()
+                } else {
+                    "below".into()
+                }
+            }),
             rr25: entry_chain.metrics.rr25,
             bf25: entry_chain.metrics.bf25,
             min_quote_quality: entry_analysis.min_quote_quality,
@@ -213,10 +276,16 @@ pub fn run_backtest(store: &ReplayStore, request: &BacktestRequest) -> anyhow::R
 
     let stats = summarize(&trades);
     let mut cumulative = 0.0;
-    let equity_curve = trades.iter().map(|trade| {
-        cumulative += trade.pnl;
-        EquityPoint { date: trade.exit_date.clone(), cumulative_pnl: cumulative }
-    }).collect();
+    let equity_curve = trades
+        .iter()
+        .map(|trade| {
+            cumulative += trade.pnl;
+            EquityPoint {
+                date: trade.exit_date.clone(),
+                cumulative_pnl: cumulative,
+            }
+        })
+        .collect();
 
     let fingerprint = format!(
         "{}:{}:{}:{}:{}:{}",
@@ -246,9 +315,15 @@ pub fn run_backtest(store: &ReplayStore, request: &BacktestRequest) -> anyhow::R
     })
 }
 
-fn select_expiration(store: &ReplayStore, symbol: &str, trading_date: &str, target_dte: i64) -> Option<String> {
+fn select_expiration(
+    store: &ReplayStore,
+    symbol: &str,
+    trading_date: &str,
+    target_dte: i64,
+) -> Option<String> {
     let day = NaiveDate::parse_from_str(trading_date, "%Y-%m-%d").ok()?;
-    store.expirations(symbol, trading_date)
+    store
+        .expirations(symbol, trading_date)
         .into_iter()
         .filter_map(|expiry| {
             let parsed = NaiveDate::parse_from_str(&expiry, "%Y-%m-%d").ok()?;
@@ -259,16 +334,31 @@ fn select_expiration(store: &ReplayStore, symbol: &str, trading_date: &str, targ
         .map(|(expiry, _)| expiry)
 }
 
-fn select_legs(chain: &crate::models::ChainSnapshot, rules: &[BacktestLegRule]) -> anyhow::Result<Vec<StrategyLegInput>> {
+fn select_legs(
+    chain: &crate::models::ChainSnapshot,
+    rules: &[BacktestLegRule],
+) -> anyhow::Result<Vec<StrategyLegInput>> {
     let mut selected = Vec::with_capacity(rules.len());
     let mut used = std::collections::HashSet::new();
     for rule in rules {
         let right = rule.right.to_uppercase();
-        let target = if right == "PUT" { -rule.target_delta.abs() } else { rule.target_delta.abs() };
-        let row = chain.rows.iter()
-            .filter(|row| row.right == right && row.bid >= 0.0 && row.ask > 0.0 && row.quality_score >= 40.0)
+        let target = if right == "PUT" {
+            -rule.target_delta.abs()
+        } else {
+            rule.target_delta.abs()
+        };
+        let row = chain
+            .rows
+            .iter()
+            .filter(|row| {
+                row.right == right && row.bid >= 0.0 && row.ask > 0.0 && row.quality_score >= 40.0
+            })
             .filter(|row| !used.contains(&row.symbol))
-            .min_by(|a, b| (a.delta - target).abs().total_cmp(&(b.delta - target).abs()))
+            .min_by(|a, b| {
+                (a.delta - target)
+                    .abs()
+                    .total_cmp(&(b.delta - target).abs())
+            })
             .ok_or_else(|| anyhow::anyhow!("no contract for {right} target delta {target:.2}"))?;
         used.insert(row.symbol.clone());
         selected.push(StrategyLegInput {
@@ -284,19 +374,37 @@ fn select_legs(chain: &crate::models::ChainSnapshot, rules: &[BacktestLegRule]) 
 
 fn summarize(trades: &[BacktestTrade]) -> BacktestStats {
     if trades.is_empty() {
-        return BacktestStats { trades: 0, wins: 0, losses: 0, win_rate: 0.0, total_pnl: 0.0, average_pnl: 0.0, median_pnl: 0.0, profit_factor: None, max_drawdown: 0.0 };
+        return BacktestStats {
+            trades: 0,
+            wins: 0,
+            losses: 0,
+            win_rate: 0.0,
+            total_pnl: 0.0,
+            average_pnl: 0.0,
+            median_pnl: 0.0,
+            profit_factor: None,
+            max_drawdown: 0.0,
+        };
     }
     let wins = trades.iter().filter(|trade| trade.pnl > 0.0).count();
     let losses = trades.iter().filter(|trade| trade.pnl < 0.0).count();
     let total_pnl = trades.iter().map(|trade| trade.pnl).sum::<f64>();
-    let gross_profit = trades.iter().filter(|trade| trade.pnl > 0.0).map(|trade| trade.pnl).sum::<f64>();
-    let gross_loss = -trades.iter().filter(|trade| trade.pnl < 0.0).map(|trade| trade.pnl).sum::<f64>();
+    let gross_profit = trades
+        .iter()
+        .filter(|trade| trade.pnl > 0.0)
+        .map(|trade| trade.pnl)
+        .sum::<f64>();
+    let gross_loss = -trades
+        .iter()
+        .filter(|trade| trade.pnl < 0.0)
+        .map(|trade| trade.pnl)
+        .sum::<f64>();
     let mut pnls: Vec<f64> = trades.iter().map(|trade| trade.pnl).collect();
     pnls.sort_by(f64::total_cmp);
     let median_pnl = if pnls.len() % 2 == 0 {
-        (pnls[pnls.len()/2 - 1] + pnls[pnls.len()/2]) / 2.0
+        (pnls[pnls.len() / 2 - 1] + pnls[pnls.len() / 2]) / 2.0
     } else {
-        pnls[pnls.len()/2]
+        pnls[pnls.len() / 2]
     };
     let mut equity: f64 = 0.0;
     let mut peak: f64 = 0.0;
@@ -325,11 +433,25 @@ mod tests {
     #[test]
     fn summary_tracks_drawdown_and_profit_factor() {
         let mk = |pnl| BacktestTrade {
-            entry_date: "2026-01-01".into(), exit_date: "2026-01-02".into(), expiration: "2026-02-01".into(),
-            entry_minute: "10:00".into(), exit_minute: "15:45".into(), entry_spot: 100.0, exit_spot: 100.0,
-            entry_cash_flow: -100.0, exit_liquidation_value: 100.0 + pnl, pnl, return_on_debit: Some(pnl/100.0),
-            entry_atm_iv: None, entry_net_gex: None, entry_gamma_flip: None, spot_vs_gamma_flip: None,
-            rr25: None, bf25: None, min_quote_quality: 100.0, legs: vec![],
+            entry_date: "2026-01-01".into(),
+            exit_date: "2026-01-02".into(),
+            expiration: "2026-02-01".into(),
+            entry_minute: "10:00".into(),
+            exit_minute: "15:45".into(),
+            entry_spot: 100.0,
+            exit_spot: 100.0,
+            entry_cash_flow: -100.0,
+            exit_liquidation_value: 100.0 + pnl,
+            pnl,
+            return_on_debit: Some(pnl / 100.0),
+            entry_atm_iv: None,
+            entry_net_gex: None,
+            entry_gamma_flip: None,
+            spot_vs_gamma_flip: None,
+            rr25: None,
+            bf25: None,
+            min_quote_quality: 100.0,
+            legs: vec![],
         };
         let stats = summarize(&[mk(100.0), mk(-50.0), mk(-25.0)]);
         assert_eq!(stats.trades, 3);
