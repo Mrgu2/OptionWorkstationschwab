@@ -4,11 +4,13 @@ mod audit;
 mod backtest;
 mod journal;
 mod live;
+mod manifest;
 mod models;
 mod regime;
 mod replay;
 mod strategy;
 mod volatility;
+mod walk_forward;
 
 use std::{env, net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
 
@@ -40,6 +42,7 @@ use crate::{
     models::{CredentialRequest, LiveSessionRequest, OAuthStartRequest},
     regime::{RegimeScanRequest, scan as scan_regimes},
     replay::{ReplaySnapshotParams, ReplayStore},
+    walk_forward::{WalkForwardRequest, run_walk_forward},
     strategy::{StrategyRequest, analyze_strategy},
 };
 
@@ -482,6 +485,20 @@ async fn regime_scan(
         .map_err(ApiError::bad_request)
 }
 
+async fn walk_forward_run(
+    State(state): State<AppState>,
+    Json(request): Json<WalkForwardRequest>,
+) -> Result<Json<Value>, ApiError> {
+    for candidate in &request.candidates {
+        validate_minute(&candidate.entry_minute)?;
+        validate_minute(&candidate.exit_minute)?;
+    }
+    run_walk_forward(&state.replay, &request)
+        .and_then(|report| serde_json::to_value(report).map_err(anyhow::Error::from))
+        .map(Json)
+        .map_err(ApiError::bad_request)
+}
+
 async fn journal_replay(
     State(state): State<AppState>,
     Query(query): Query<JournalReplayQuery>,
@@ -615,6 +632,7 @@ fn app(state: AppState, frontend_dist: PathBuf) -> Router {
         .route("/api/research/backtest", post(backtest_run))
         .route("/api/research/attribution", post(attribution_run))
         .route("/api/research/regime-scan", post(regime_scan))
+        .route("/api/research/walk-forward", post(walk_forward_run))
         .route("/api/research/journal", get(journal_replay))
         .route(
             "/api/audit/records",
