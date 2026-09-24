@@ -415,12 +415,13 @@ mod tests {
             .unwrap();
 
         assert!(!store.holdout_opened("commit-1").await.unwrap());
-        assert!(
+        assert_eq!(
             store
-                .active_holdout_seal("strategy-1")
+                .active_holdout_seals_for_symbol("SPY")
                 .await
                 .unwrap()
-                .is_some()
+                .len(),
+            1
         );
 
         store
@@ -440,10 +441,10 @@ mod tests {
         assert!(store.holdout_opened("commit-1").await.unwrap());
         assert!(
             store
-                .active_holdout_seal("strategy-1")
+                .active_holdout_seals_for_symbol("SPY")
                 .await
                 .unwrap()
-                .is_none()
+                .is_empty()
         );
         let _ = fs::remove_file(path);
     }
