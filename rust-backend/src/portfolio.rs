@@ -256,8 +256,7 @@ pub fn run_portfolio(
             let drawdown = (peak_equity - equity).max(0.0);
             max_realized_drawdown = max_realized_drawdown.max(drawdown);
             if peak_equity > 0.0 {
-                max_realized_drawdown_pct =
-                    max_realized_drawdown_pct.max(drawdown / peak_equity);
+                max_realized_drawdown_pct = max_realized_drawdown_pct.max(drawdown / peak_equity);
             }
             let open_risk = open.values().map(|position| position.risk).sum::<f64>();
             equity_curve.push(PortfolioEquityPoint {
