@@ -50,6 +50,9 @@ export default function ResearchLab({ catalog, defaultSymbol, pricingMode, deale
   const [maxTotalRisk, setMaxTotalRisk] = useState(25)
   const [maxOpenPositions, setMaxOpenPositions] = useState(10)
   const [holdoutSessions, setHoldoutSessions] = useState(20)
+  const [rollDte, setRollDte] = useState(3)
+  const [rollTargetDte, setRollTargetDte] = useState(30)
+  const [maxRolls, setMaxRolls] = useState(2)
   const [holdoutPlan, setHoldoutPlan] = useState(null)
   const [holdoutPlanInput, setHoldoutPlanInput] = useState(null)
   const [holdoutResult, setHoldoutResult] = useState(null)
@@ -58,6 +61,7 @@ export default function ResearchLab({ catalog, defaultSymbol, pricingMode, deale
   const [walkForward, setWalkForward] = useState(null)
   const [stability, setStability] = useState(null)
   const [portfolio, setPortfolio] = useState(null)
+  const [rolling, setRolling] = useState(null)
   const [attribution, setAttribution] = useState(null)
   const [manifest, setManifest] = useState(null)
   const [status, setStatus] = useState('')
@@ -200,6 +204,16 @@ export default function ResearchLab({ catalog, defaultSymbol, pricingMode, deale
     if (data) setHoldoutResult(data)
   }
 
+  const runRolling = async () => {
+    const data = await run('Running rolling backtest', () => apiJson('/api/research/rolling', 'POST', {
+      base: request,
+      roll_dte_lte: numberValue(rollDte, 3),
+      roll_target_dte: numberValue(rollTargetDte, 30),
+      max_rolls: numberValue(maxRolls, 2),
+    }))
+    if (data) setRolling(data)
+  }
+
   const exportResearch = () => {
     const payload = {
       schema_version: 'option-workstation-research-export-v1',
@@ -212,6 +226,7 @@ export default function ResearchLab({ catalog, defaultSymbol, pricingMode, deale
       walk_forward: walkForward,
       parameter_stability: stability,
       portfolio,
+      rolling,
       holdout_plan: holdoutPlan,
       holdout_result: holdoutResult,
     }
@@ -365,6 +380,14 @@ export default function ResearchLab({ catalog, defaultSymbol, pricingMode, deale
           <span>Holdout {holdoutPlan.holdout_start} → {holdoutPlan.holdout_end}</span>
         </div>}
 
+        <div className="research-section-title portfolio-title"><strong>Rolling engine</strong><span>close old contracts, reopen by target delta</span></div>
+        <div className="research-form-grid">
+          <label>Roll when DTE ≤<input type="number" min="0" value={rollDte} onChange={(event) => setRollDte(event.target.value)} /></label>
+          <label>New target DTE<input type="number" min="1" value={rollTargetDte} onChange={(event) => setRollTargetDte(event.target.value)} /></label>
+          <label>Max rolls<input type="number" min="1" max="12" value={maxRolls} onChange={(event) => setMaxRolls(event.target.value)} /></label>
+        </div>
+        <div className="research-actions"><button onClick={runRolling} disabled={Boolean(status)}>Run rolling backtest</button></div>
+
         <div className="research-section-title portfolio-title"><strong>Portfolio constraints</strong><span>uses the candidate strategies above</span></div>
         <div className="research-form-grid">
           <label>Initial capital<input type="number" min="1" step="1000" value={initialCapital} onChange={(event) => setInitialCapital(event.target.value)} /></label>
@@ -454,6 +477,23 @@ export default function ResearchLab({ catalog, defaultSymbol, pricingMode, deale
         <Metric label="Max DD" value={formatMoney(holdoutResult.holdout.stats.max_drawdown)} />
         <Metric label="Costs" value={formatMoney(holdoutResult.holdout.stats.total_costs)} />
       </div>
+    </section>}
+
+    {rolling && <section className="research-output">
+      <div className="research-section-title"><strong>Rolling Backtest</strong><span>{rolling.rolling_strategy_id}</span></div>
+      <div className="compact-metrics">
+        <Metric label="Campaigns" value={rolling.stats.campaigns} />
+        <Metric label="Total rolls" value={rolling.stats.total_rolls} />
+        <Metric label="Win rate" value={formatPct(rolling.stats.win_rate * 100)} />
+        <Metric label="Net P/L" value={formatMoney(rolling.stats.total_pnl)} tone={rolling.stats.total_pnl >= 0 ? 'up' : 'down'} />
+        <Metric label="Avg P/L" value={formatMoney(rolling.stats.average_pnl)} />
+        <Metric label="Profit factor" value={rolling.stats.profit_factor?.toFixed(2)} />
+        <Metric label="Max DD" value={formatMoney(rolling.stats.max_drawdown)} />
+        <Metric label="Costs" value={formatMoney(rolling.stats.total_costs)} />
+      </div>
+      <div className="research-table-wrap"><table className="research-table"><thead><tr><th>Entry</th><th>Exit</th><th>Rolls</th><th>Initial expiry</th><th>Final expiry</th><th>Reason</th><th>Net P/L</th><th>Costs</th></tr></thead><tbody>
+        {rolling.campaigns.slice(-30).reverse().map((campaign, index) => <tr key={`${campaign.entry_date}-${campaign.exit_date}-${index}`}><td>{campaign.entry_date}</td><td>{campaign.exit_date}</td><td>{campaign.roll_count}</td><td>{campaign.initial_expiration}</td><td>{campaign.final_expiration}</td><td>{campaign.exit_reason}</td><td className={campaign.pnl >= 0 ? 'up' : 'down'}>{formatMoney(campaign.pnl)}</td><td>{formatMoney(campaign.total_costs)}</td></tr>)}
+      </tbody></table></div>
     </section>}
 
     {portfolio && <section className="research-output">
