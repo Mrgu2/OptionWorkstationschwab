@@ -247,8 +247,9 @@ pub fn run_portfolio(
             if let Some(position) = open.remove(&event.candidate_index) {
                 equity += candidate.trade.pnl;
                 total_modeled_costs += candidate.trade.total_costs;
-                *strategy_contributions.entry(position.strategy_id).or_insert(0.0) +=
-                    candidate.trade.pnl;
+                *strategy_contributions
+                    .entry(position.strategy_id)
+                    .or_insert(0.0) += candidate.trade.pnl;
 
                 peak_equity = peak_equity.max(equity);
                 let drawdown = (peak_equity - equity).max(0.0);

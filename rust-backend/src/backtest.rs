@@ -24,7 +24,6 @@ pub struct CostModel {
     pub slippage_per_contract: f64,
 }
 
-
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct ExitRules {
     pub take_profit_pct_of_risk: Option<f64>,
