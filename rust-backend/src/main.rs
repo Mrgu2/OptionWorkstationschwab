@@ -3,6 +3,7 @@ mod attribution;
 mod audit;
 mod backtest;
 mod journal;
+mod holdout;
 mod live;
 mod manifest;
 mod models;
@@ -38,6 +39,7 @@ use crate::{
     attribution::{AttributionRequest, attribute},
     audit::{AuditCaptureRequest, AuditStore},
     backtest::{BacktestRequest, run_backtest},
+    holdout::{HoldoutOpenRequest, HoldoutPlanRequest, open_holdout, plan_holdout},
     journal::build as build_journal,
     live::{LiveManager, option_retry_after_ms},
     manifest::freeze_manifest,
@@ -458,6 +460,30 @@ async fn backtest_run(
 ) -> Result<Json<Value>, ApiError> {
     validate_minute(&request.entry_minute)?;
     validate_minute(&request.exit_minute)?;
+    let manifest = freeze_manifest(&request).map_err(ApiError::bad_request)?;
+    if let Some(seal) = state
+        .audit
+        .active_holdout_seal(&manifest.strategy_id)
+        .await
+        .map_err(ApiError::bad_request)?
+    {
+        let holdout_start = seal
+            .get("holdout_start")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        let holdout_end = seal
+            .get("holdout_end")
+            .and_then(Value::as_str)
+            .unwrap_or("9999-12-31");
+        let request_start = request.start_date.as_deref().unwrap_or("");
+        let request_end = request.end_date.as_deref().unwrap_or("9999-12-31");
+        if request_start <= holdout_end && request_end >= holdout_start {
+            return Err(ApiError::conflict(format!(
+                "strategy {} has a sealed untouched holdout from {} through {}; use the holdout open endpoint to reveal it",
+                manifest.strategy_id, holdout_start, holdout_end
+            )));
+        }
+    }
     run_backtest(&state.replay, &request)
         .and_then(|report| serde_json::to_value(report).map_err(anyhow::Error::from))
         .map(Json)
@@ -469,6 +495,75 @@ async fn strategy_manifest(Json(request): Json<BacktestRequest>) -> Result<Json<
     validate_minute(&request.exit_minute)?;
     freeze_manifest(&request)
         .and_then(|manifest| serde_json::to_value(manifest).map_err(anyhow::Error::from))
+        .map(Json)
+        .map_err(ApiError::bad_request)
+}
+
+async fn holdout_seal(
+    State(state): State<AppState>,
+    Json(request): Json<HoldoutPlanRequest>,
+) -> Result<Json<Value>, ApiError> {
+    validate_minute(&request.strategy.entry_minute)?;
+    validate_minute(&request.strategy.exit_minute)?;
+    let plan = plan_holdout(&state.replay, &request).map_err(ApiError::bad_request)?;
+    state
+        .audit
+        .append(AuditCaptureRequest {
+            kind: "holdout_seal".into(),
+            mode: "system".into(),
+            symbol: plan.symbol.clone(),
+            snapshot_id: None,
+            payload: serde_json::to_value(&plan).map_err(ApiError::bad_request)?,
+        })
+        .await
+        .map_err(ApiError::bad_request)?;
+    serde_json::to_value(plan)
+        .map(Json)
+        .map_err(ApiError::bad_request)
+}
+
+async fn holdout_open(
+    State(state): State<AppState>,
+    Json(request): Json<HoldoutOpenRequest>,
+) -> Result<Json<Value>, ApiError> {
+    validate_minute(&request.plan.strategy.entry_minute)?;
+    validate_minute(&request.plan.strategy.exit_minute)?;
+    let plan = plan_holdout(&state.replay, &request.plan).map_err(ApiError::bad_request)?;
+    if request.commitment != plan.commitment {
+        return Err(ApiError::bad_request(
+            "holdout commitment mismatch; strategy or boundary changed after sealing",
+        ));
+    }
+    if state
+        .audit
+        .holdout_opened(&request.commitment)
+        .await
+        .map_err(ApiError::bad_request)?
+    {
+        return Err(ApiError::conflict(
+            "this holdout commitment has already been opened; create a new research hypothesis before using another final holdout",
+        ));
+    }
+
+    state
+        .audit
+        .append(AuditCaptureRequest {
+            kind: "holdout_open".into(),
+            mode: "system".into(),
+            symbol: plan.symbol.clone(),
+            snapshot_id: None,
+            payload: serde_json::json!({
+                "commitment": plan.commitment,
+                "strategy_id": plan.strategy_id,
+                "holdout_start": plan.holdout_start,
+                "holdout_end": plan.holdout_end,
+            }),
+        })
+        .await
+        .map_err(ApiError::bad_request)?;
+
+    open_holdout(&state.replay, &request)
+        .and_then(|report| serde_json::to_value(report).map_err(anyhow::Error::from))
         .map(Json)
         .map_err(ApiError::bad_request)
 }
@@ -657,6 +752,8 @@ fn app(state: AppState, frontend_dist: PathBuf) -> Router {
         .route("/api/strategy/analyze", post(strategy_analyze))
         .route("/api/research/backtest", post(backtest_run))
         .route("/api/research/manifest", post(strategy_manifest))
+        .route("/api/research/holdout/seal", post(holdout_seal))
+        .route("/api/research/holdout/open", post(holdout_open))
         .route("/api/research/attribution", post(attribution_run))
         .route("/api/research/regime-scan", post(regime_scan))
         .route("/api/research/walk-forward", post(walk_forward_run))
