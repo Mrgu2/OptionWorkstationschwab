@@ -257,6 +257,8 @@ pub fn run_walk_forward(
     let ratio = (selected_train_average.abs() > 1e-9)
         .then_some(out_of_sample_stats.average_pnl / selected_train_average);
 
+    let fold_count = folds.len();
+
     Ok(WalkForwardReport {
         engine: "walk_forward_v1",
         symbol,
@@ -268,9 +270,7 @@ pub fn run_walk_forward(
         folds,
         out_of_sample_stats,
         selected_strategy_frequency,
-        profitable_oos_folds_pct: profitable_folds as f64
-            / all_fold_count(profitable_folds, request, store, &symbol)? as f64
-            * 100.0,
+        profitable_oos_folds_pct: profitable_folds as f64 / fold_count as f64 * 100.0,
         oos_to_selected_train_average_pnl_ratio: ratio,
         notes: vec![
             "candidate selection uses training data only; the selected manifest is frozen before the test window is evaluated".into(),
@@ -279,18 +279,6 @@ pub fn run_walk_forward(
             "a strong in-sample score with weak OOS results is evidence of instability or overfitting, not proof of persistent edge".into(),
         ],
     })
-}
-
-fn all_fold_count(
-    profitable_folds: usize,
-    request: &WalkForwardRequest,
-    store: &ReplayStore,
-    symbol: &str,
-) -> anyhow::Result<usize> {
-    let _ = (profitable_folds, request, store, symbol);
-    // This helper exists only to keep the final percentage calculation explicit.
-    // The caller already guarantees at least one fold.
-    Ok(1)
 }
 
 fn with_window(candidate: &BacktestRequest, start: &str, end: &str) -> BacktestRequest {
@@ -304,9 +292,9 @@ fn selection_score(stats: &BacktestStats, metric: &str) -> f64 {
     match metric {
         "profit_factor" => stats.profit_factor.unwrap_or_else(|| {
             if stats.wins > 0 && stats.losses == 0 {
-                f64::INFINITY
+                f64::MAX
             } else {
-                f64::NEG_INFINITY
+                f64::MIN
             }
         }),
         "total_pnl" => stats.total_pnl,
