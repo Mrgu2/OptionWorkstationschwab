@@ -20,7 +20,7 @@ pub struct StrategyDefinition {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StrategyManifest {
-    pub manifest_version: &'static str,
+    pub manifest_version: String,
     pub strategy_id: String,
     pub definition: StrategyDefinition,
 }
@@ -42,7 +42,7 @@ pub fn freeze_manifest(request: &BacktestRequest) -> anyhow::Result<StrategyMani
     let material = serde_json::to_vec(&definition)?;
     let strategy_id = hex::encode(Sha256::digest(material))[..20].to_string();
     Ok(StrategyManifest {
-        manifest_version: "strategy-manifest-v1",
+        manifest_version: "strategy-manifest-v1".into(),
         strategy_id,
         definition,
     })
