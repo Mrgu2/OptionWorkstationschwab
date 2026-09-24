@@ -41,7 +41,7 @@ export default function ResearchLab({ catalog, defaultSymbol, pricingMode, deale
     { right: 'PUT', side: 'BUY', target_delta: 0.30, ratio: 1 },
     { right: 'PUT', side: 'SELL', target_delta: 0.15, ratio: 1 },
   ])
-  const [candidateGrid, setCandidateGrid] = useState('0.25,0.10\n0.30,0.15\n0.35,0.20')
+  const [candidateGrid, setCandidateGrid] = useState('0.30,0.15\n0.25,0.10\n0.35,0.20')
   const [trainSessions, setTrainSessions] = useState(60)
   const [testSessions, setTestSessions] = useState(20)
   const [anchored, setAnchored] = useState(true)
@@ -52,6 +52,7 @@ export default function ResearchLab({ catalog, defaultSymbol, pricingMode, deale
   const [holdoutSessions, setHoldoutSessions] = useState(20)
   const [rollDte, setRollDte] = useState(3)
   const [rollTargetDte, setRollTargetDte] = useState(30)
+  const [rollingCampaignSessions, setRollingCampaignSessions] = useState(60)
   const [maxRolls, setMaxRolls] = useState(2)
   const [holdoutPlan, setHoldoutPlan] = useState(null)
   const [holdoutPlanInput, setHoldoutPlanInput] = useState(null)
@@ -206,7 +207,10 @@ export default function ResearchLab({ catalog, defaultSymbol, pricingMode, deale
 
   const runRolling = async () => {
     const data = await run('Running rolling backtest', () => apiJson('/api/research/rolling', 'POST', {
-      base: request,
+      base: {
+        ...request,
+        hold_trading_days: numberValue(rollingCampaignSessions, 60),
+      },
       roll_dte_lte: numberValue(rollDte, 3),
       roll_target_dte: numberValue(rollTargetDte, 30),
       max_rolls: numberValue(maxRolls, 2),
@@ -384,6 +388,7 @@ export default function ResearchLab({ catalog, defaultSymbol, pricingMode, deale
         <div className="research-form-grid">
           <label>Roll when DTE ≤<input type="number" min="0" value={rollDte} onChange={(event) => setRollDte(event.target.value)} /></label>
           <label>New target DTE<input type="number" min="1" value={rollTargetDte} onChange={(event) => setRollTargetDte(event.target.value)} /></label>
+          <label>Campaign sessions<input type="number" min="1" max="120" value={rollingCampaignSessions} onChange={(event) => setRollingCampaignSessions(event.target.value)} /></label>
           <label>Max rolls<input type="number" min="1" max="12" value={maxRolls} onChange={(event) => setMaxRolls(event.target.value)} /></label>
         </div>
         <div className="research-actions"><button onClick={runRolling} disabled={Boolean(status)}>Run rolling backtest</button></div>
