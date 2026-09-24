@@ -49,9 +49,14 @@ export default function ResearchLab({ catalog, defaultSymbol, pricingMode, deale
   const [maxRiskPerTrade, setMaxRiskPerTrade] = useState(5)
   const [maxTotalRisk, setMaxTotalRisk] = useState(25)
   const [maxOpenPositions, setMaxOpenPositions] = useState(10)
+  const [holdoutSessions, setHoldoutSessions] = useState(20)
+  const [holdoutPlan, setHoldoutPlan] = useState(null)
+  const [holdoutPlanInput, setHoldoutPlanInput] = useState(null)
+  const [holdoutResult, setHoldoutResult] = useState(null)
   const [result, setResult] = useState(null)
   const [regime, setRegime] = useState(null)
   const [walkForward, setWalkForward] = useState(null)
+  const [stability, setStability] = useState(null)
   const [portfolio, setPortfolio] = useState(null)
   const [attribution, setAttribution] = useState(null)
   const [manifest, setManifest] = useState(null)
@@ -158,6 +163,67 @@ export default function ResearchLab({ catalog, defaultSymbol, pricingMode, deale
     if (data) setWalkForward(data)
   }
 
+  const runStability = async () => {
+    if (!candidates.length) {
+      setError('Candidate grid does not match the current number of legs')
+      return
+    }
+    const data = await run('Testing parameter stability', () => apiJson('/api/research/stability', 'POST', {
+      candidates,
+      start_date: startDate || null,
+      end_date: endDate || null,
+      min_trades: 10,
+    }))
+    if (data) setStability(data)
+  }
+
+  const sealHoldout = async () => {
+    const payload = {
+      strategy: clone(request),
+      start_date: startDate || null,
+      end_date: endDate || null,
+      holdout_sessions: numberValue(holdoutSessions, 20),
+    }
+    const data = await run('Sealing untouched holdout', () => apiJson('/api/research/holdout/seal', 'POST', payload))
+    if (!data) return
+    setHoldoutPlan(data)
+    setHoldoutPlanInput(payload)
+    setHoldoutResult(null)
+  }
+
+  const openHoldout = async () => {
+    if (!holdoutPlan || !holdoutPlanInput) return
+    const data = await run('Opening final holdout once', () => apiJson('/api/research/holdout/open', 'POST', {
+      plan: holdoutPlanInput,
+      commitment: holdoutPlan.commitment,
+    }))
+    if (data) setHoldoutResult(data)
+  }
+
+  const exportResearch = () => {
+    const payload = {
+      schema_version: 'option-workstation-research-export-v1',
+      generated_at: new Date().toISOString(),
+      symbol,
+      manifest,
+      backtest: result,
+      attribution,
+      regime,
+      walk_forward: walkForward,
+      parameter_stability: stability,
+      portfolio,
+      holdout_plan: holdoutPlan,
+      holdout_result: holdoutResult,
+    }
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `option-workstation-research-${symbol}-${new Date().toISOString().slice(0, 10)}.json`
+    link.click()
+    URL.revokeObjectURL(url)
+  }
+
   const runPortfolio = async () => {
     const strategies = candidates.length ? candidates : [request]
     const data = await run('Running portfolio', () => apiJson('/api/research/portfolio', 'POST', {
@@ -210,13 +276,19 @@ export default function ResearchLab({ catalog, defaultSymbol, pricingMode, deale
     series: [{ type: 'line', showSymbol: false, data: result.equity_curve.map((point) => point.cumulative_pnl) }],
   } : null
 
-  const portfolioOption = portfolio?.equity_curve?.length ? {
+  const portfolioOption = portfolio?.mtm_equity_curve?.length ? {
     animation: false,
     tooltip: { trigger: 'axis' },
     grid: { left: 64, right: 20, top: 18, bottom: 38 },
-    xAxis: { type: 'category', data: portfolio.equity_curve.map((point) => point.timestamp.slice(0, 10)), axisLabel: { color: '#83909c' } },
+    xAxis: { type: 'category', data: portfolio.mtm_equity_curve.map((point) => point.date), axisLabel: { color: '#83909c' } },
     yAxis: { type: 'value', axisLabel: { color: '#83909c' }, splitLine: { lineStyle: { color: '#1d2730' } } },
-    series: [{ type: 'line', showSymbol: false, data: portfolio.equity_curve.map((point) => point.equity) }],
+    series: [{
+      name: 'MTM equity',
+      type: 'line',
+      showSymbol: false,
+      connectNulls: false,
+      data: portfolio.mtm_equity_curve.map((point) => point.complete ? point.equity : null),
+    }],
   } : null
 
   return <div className="research-lab">
@@ -273,7 +345,25 @@ export default function ResearchLab({ catalog, defaultSymbol, pricingMode, deale
           <label>Test sessions<input type="number" min="1" value={testSessions} onChange={(event) => setTestSessions(event.target.value)} /></label>
           <label className="research-checkbox"><input type="checkbox" checked={anchored} onChange={(event) => setAnchored(event.target.checked)} />Anchored training</label>
         </div>
-        <div className="research-actions"><button className="primary" onClick={runWalkForward} disabled={Boolean(status)}>Run walk forward</button></div>
+        <div className="research-actions">
+          <button className="primary" onClick={runWalkForward} disabled={Boolean(status)}>Run walk forward</button>
+          <button onClick={runStability} disabled={Boolean(status)}>Parameter stability</button>
+        </div>
+
+        <div className="research-section-title portfolio-title"><strong>Final untouched holdout</strong><span>seal first, reveal once</span></div>
+        <div className="research-form-grid">
+          <label>Holdout sessions<input type="number" min="5" value={holdoutSessions} onChange={(event) => setHoldoutSessions(event.target.value)} /></label>
+        </div>
+        <div className="research-actions">
+          <button onClick={sealHoldout} disabled={Boolean(status)}>Seal holdout</button>
+          <button className="primary" onClick={openHoldout} disabled={Boolean(status) || !holdoutPlan || Boolean(holdoutResult)}>Open once</button>
+          <button onClick={exportResearch}>Export research JSON</button>
+        </div>
+        {holdoutPlan && <div className="holdout-seal">
+          <span>Commitment {holdoutPlan.commitment.slice(0, 20)}…</span>
+          <span>Development through {holdoutPlan.development_end}</span>
+          <span>Holdout {holdoutPlan.holdout_start} → {holdoutPlan.holdout_end}</span>
+        </div>}
 
         <div className="research-section-title portfolio-title"><strong>Portfolio constraints</strong><span>uses the candidate strategies above</span></div>
         <div className="research-form-grid">
@@ -337,6 +427,35 @@ export default function ResearchLab({ catalog, defaultSymbol, pricingMode, deale
       </tbody></table></div>
     </section>}
 
+    {stability && <section className="research-output">
+      <div className="research-section-title"><strong>Parameter Stability</strong><span>{stability.eligible_candidates} eligible neighbors</span></div>
+      <div className="compact-metrics">
+        <Metric label="Profitable neighbors" value={formatPct(stability.profitable_candidate_pct)} />
+        <Metric label="Base-sign survival" value={formatPct(stability.base_sign_survival_pct)} />
+        <Metric label="Median avg P/L" value={formatMoney(stability.median_average_pnl)} />
+        <Metric label="Worst avg P/L" value={formatMoney(stability.worst_average_pnl)} />
+        <Metric label="Best avg P/L" value={formatMoney(stability.best_average_pnl)} />
+        <Metric label="Avg P/L σ" value={formatMoney(stability.average_pnl_stddev)} />
+        <Metric label="Dispersion / mean" value={stability.dispersion_to_mean?.toFixed(2)} />
+      </div>
+      <div className="research-table-wrap"><table className="research-table"><thead><tr><th>Strategy</th><th>Trades</th><th>Avg P/L</th><th>vs Base</th><th>Win rate</th><th>PF</th><th>Max DD</th></tr></thead><tbody>
+        {stability.candidates.map((candidate) => <tr key={candidate.strategy_id}><td className="mono">{candidate.strategy_id}</td><td>{candidate.trades}</td><td>{formatMoney(candidate.average_pnl)}</td><td>{candidate.average_pnl_vs_base?.toFixed(2) ?? '--'}</td><td>{formatPct(candidate.win_rate * 100)}</td><td>{candidate.profit_factor?.toFixed(2) ?? '--'}</td><td>{formatMoney(candidate.max_drawdown)}</td></tr>)}
+      </tbody></table></div>
+    </section>}
+
+    {holdoutResult && <section className="research-output holdout-result">
+      <div className="research-section-title"><strong>Final Holdout</strong><span>{holdoutResult.plan.commitment.slice(0, 20)}… opened</span></div>
+      <div className="compact-metrics">
+        <Metric label="Holdout trades" value={holdoutResult.holdout.stats.trades} />
+        <Metric label="Net P/L" value={formatMoney(holdoutResult.holdout.stats.total_pnl)} tone={holdoutResult.holdout.stats.total_pnl >= 0 ? 'up' : 'down'} />
+        <Metric label="Avg P/L" value={formatMoney(holdoutResult.holdout.stats.average_pnl)} />
+        <Metric label="Win rate" value={formatPct(holdoutResult.holdout.stats.win_rate * 100)} />
+        <Metric label="Profit factor" value={holdoutResult.holdout.stats.profit_factor?.toFixed(2)} />
+        <Metric label="Max DD" value={formatMoney(holdoutResult.holdout.stats.max_drawdown)} />
+        <Metric label="Costs" value={formatMoney(holdoutResult.holdout.stats.total_costs)} />
+      </div>
+    </section>}
+
     {portfolio && <section className="research-output">
       <div className="research-section-title"><strong>Portfolio capital engine</strong><span>defined-risk admission</span></div>
       <div className="compact-metrics">
@@ -347,6 +466,8 @@ export default function ResearchLab({ catalog, defaultSymbol, pricingMode, deale
         <Metric label="Rejected" value={portfolio.rejected_trades} />
         <Metric label="Peak open risk" value={formatPct(portfolio.peak_open_risk_pct_of_equity)} />
         <Metric label="Realized max DD" value={formatPct(portfolio.max_realized_drawdown_pct)} />
+        <Metric label="MTM max DD" value={formatPct(portfolio.max_mtm_drawdown_pct)} />
+        <Metric label="MTM complete" value={portfolio.mtm_complete_points} detail={portfolio.mtm_missing_marks ? `${portfolio.mtm_missing_marks} missing marks` : 'all marks available'} />
         <Metric label="Modeled costs" value={formatMoney(portfolio.total_modeled_costs)} />
       </div>
       {portfolioOption && <div className="research-chart"><Chart option={portfolioOption} viewKey="research-portfolio" /></div>}
