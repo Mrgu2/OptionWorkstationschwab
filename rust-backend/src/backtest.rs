@@ -59,6 +59,10 @@ pub struct BacktestRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BacktestTrade {
+    pub symbol: String,
+    pub quantity: u32,
+    pub pricing_mode: String,
+    pub dealer_model: String,
     pub entry_date: String,
     pub exit_date: String,
     pub expiration: String,
@@ -282,6 +286,10 @@ pub fn run_backtest(
 
         let denominator = (debit + entry_costs).max(0.0);
         trades.push(BacktestTrade {
+            symbol: symbol.clone(),
+            quantity: request.quantity,
+            pricing_mode: request.pricing_mode.clone(),
+            dealer_model: request.dealer_model.clone(),
             entry_date: entry_date.clone(),
             exit_date,
             expiration,
@@ -599,6 +607,10 @@ mod tests {
 
     fn mk_trade(pnl: f64) -> BacktestTrade {
         BacktestTrade {
+            symbol: "SPY".into(),
+            quantity: 1,
+            pricing_mode: "micro".into(),
+            dealer_model: "classic".into(),
             entry_date: "2026-01-01".into(),
             exit_date: "2026-01-02".into(),
             expiration: "2026-02-01".into(),
