@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use serde::{Deserialize, Serialize};
 
@@ -6,6 +6,7 @@ use crate::{
     backtest::{BacktestRequest, BacktestTrade, run_backtest},
     manifest::freeze_manifest,
     replay::ReplayStore,
+    strategy::analyze_strategy,
 };
 
 #[derive(Debug, Clone, Deserialize)]
@@ -44,6 +45,17 @@ pub struct PortfolioEquityPoint {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct PortfolioMtmPoint {
+    pub date: String,
+    pub equity: f64,
+    pub realized_pnl: f64,
+    pub unrealized_pnl: f64,
+    pub open_positions: usize,
+    pub open_risk: f64,
+    pub complete: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct PortfolioReport {
     pub engine: &'static str,
     pub initial_capital: f64,
@@ -57,10 +69,15 @@ pub struct PortfolioReport {
     pub peak_open_risk_pct_of_equity: f64,
     pub max_realized_drawdown: f64,
     pub max_realized_drawdown_pct: f64,
+    pub max_mtm_drawdown: f64,
+    pub max_mtm_drawdown_pct: f64,
+    pub mtm_complete_points: usize,
+    pub mtm_missing_marks: usize,
     pub total_modeled_costs: f64,
     pub rejection_reasons: BTreeMap<String, usize>,
     pub strategy_contributions: BTreeMap<String, f64>,
     pub equity_curve: Vec<PortfolioEquityPoint>,
+    pub mtm_equity_curve: Vec<PortfolioMtmPoint>,
     pub trades: Vec<PortfolioTrade>,
     pub notes: Vec<String>,
 }
@@ -273,6 +290,7 @@ pub fn run_portfolio(
     let accepted_trades = trades.iter().filter(|trade| trade.accepted).count();
     let rejected_trades = trades.len().saturating_sub(accepted_trades);
     let net_pnl = equity - request.initial_capital;
+    let mtm = build_mtm_curve(store, request.initial_capital, &trades);
 
     Ok(PortfolioReport {
         engine: "portfolio_capital_v1",
@@ -287,19 +305,154 @@ pub fn run_portfolio(
         peak_open_risk_pct_of_equity: peak_open_risk_pct_of_equity * 100.0,
         max_realized_drawdown,
         max_realized_drawdown_pct: max_realized_drawdown_pct * 100.0,
+        max_mtm_drawdown: mtm.max_drawdown,
+        max_mtm_drawdown_pct: mtm.max_drawdown_pct * 100.0,
+        mtm_complete_points: mtm.complete_points,
+        mtm_missing_marks: mtm.missing_marks,
         total_modeled_costs,
         rejection_reasons,
         strategy_contributions,
         equity_curve,
+        mtm_equity_curve: mtm.points,
         trades,
         notes: vec![
             "capital admission is evaluated chronologically using realized equity available at each entry".into(),
             "defined-risk trades use backtest max-loss risk basis plus modeled execution costs".into(),
             "by default, trades without a finite max-loss estimate are rejected from portfolio simulation".into(),
-            "drawdown is based on realized equity at exits; intratrade mark-to-market drawdown is not yet modeled".into(),
+            "daily mark-to-market equity uses executable-side liquidation values and includes hypothetical exit costs for open positions".into(),
+            "MTM drawdown metrics use only complete daily marks; missing option-chain marks remain explicit instead of being forward-filled".into(),
             "individual strategy backtests can generate overlapping signals; portfolio limits decide which trades receive capital".into(),
         ],
     })
+}
+
+#[derive(Debug)]
+struct MtmSummary {
+    points: Vec<PortfolioMtmPoint>,
+    max_drawdown: f64,
+    max_drawdown_pct: f64,
+    complete_points: usize,
+    missing_marks: usize,
+}
+
+fn build_mtm_curve(
+    store: &ReplayStore,
+    initial_capital: f64,
+    trades: &[PortfolioTrade],
+) -> MtmSummary {
+    let accepted: Vec<&PortfolioTrade> = trades.iter().filter(|trade| trade.accepted).collect();
+    if accepted.is_empty() {
+        return MtmSummary {
+            points: Vec::new(),
+            max_drawdown: 0.0,
+            max_drawdown_pct: 0.0,
+            complete_points: 0,
+            missing_marks: 0,
+        };
+    }
+
+    let min_date = accepted
+        .iter()
+        .map(|trade| trade.trade.entry_date.as_str())
+        .min()
+        .unwrap_or("");
+    let max_date = accepted
+        .iter()
+        .map(|trade| trade.trade.exit_date.as_str())
+        .max()
+        .unwrap_or("");
+
+    let mut dates = BTreeSet::new();
+    let symbols: BTreeSet<String> = accepted
+        .iter()
+        .map(|trade| trade.trade.symbol.clone())
+        .collect();
+    for symbol in symbols {
+        for date in store.dates(&symbol) {
+            if date.as_str() >= min_date && date.as_str() <= max_date {
+                dates.insert(date);
+            }
+        }
+    }
+
+    let mut points = Vec::new();
+    let mut peak = initial_capital;
+    let mut max_drawdown: f64 = 0.0;
+    let mut max_drawdown_pct: f64 = 0.0;
+    let mut complete_points = 0usize;
+    let mut missing_marks = 0usize;
+
+    for date in dates {
+        let realized_pnl = accepted
+            .iter()
+            .filter(|record| record.trade.exit_date <= date)
+            .map(|record| record.trade.pnl)
+            .sum::<f64>();
+
+        let active: Vec<&&PortfolioTrade> = accepted
+            .iter()
+            .filter(|record| record.trade.entry_date <= date && record.trade.exit_date > date)
+            .collect();
+
+        let mut unrealized_pnl = 0.0;
+        let mut open_risk = 0.0;
+        let mut complete = true;
+
+        for record in &active {
+            open_risk += record.capital_at_risk;
+            let trade = &record.trade;
+            let marked = store
+                .chain(
+                    &trade.symbol,
+                    &date,
+                    &trade.exit_minute,
+                    &trade.expiration,
+                    &trade.pricing_mode,
+                    &trade.dealer_model,
+                )
+                .and_then(|chain| analyze_strategy(&chain, &trade.legs, trade.quantity));
+            match marked {
+                Ok(analysis) => {
+                    unrealized_pnl += trade.entry_cash_flow + analysis.liquidation_value
+                        - trade.entry_costs
+                        - trade.exit_costs;
+                }
+                Err(_) => {
+                    complete = false;
+                    missing_marks += 1;
+                }
+            }
+        }
+
+        let equity = initial_capital + realized_pnl + unrealized_pnl;
+        if complete {
+            complete_points += 1;
+            peak = peak.max(equity);
+            let drawdown = (peak - equity).max(0.0);
+            max_drawdown = max_drawdown.max(drawdown);
+            if peak > 0.0 {
+                max_drawdown_pct = max_drawdown_pct.max(drawdown / peak);
+            }
+        }
+
+        points.push(PortfolioMtmPoint {
+            date,
+            equity,
+            realized_pnl,
+            unrealized_pnl,
+            open_positions: active.len(),
+            open_risk,
+            complete,
+        });
+    }
+
+    MtmSummary {
+        points,
+        max_drawdown,
+        max_drawdown_pct,
+        complete_points,
+        missing_marks,
+    }
 }
 
 fn entry_timestamp(trade: &BacktestTrade) -> String {
