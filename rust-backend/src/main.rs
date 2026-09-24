@@ -39,6 +39,7 @@ use crate::{
     backtest::{BacktestRequest, run_backtest},
     journal::build as build_journal,
     live::{LiveManager, option_retry_after_ms},
+    manifest::freeze_manifest,
     models::{CredentialRequest, LiveSessionRequest, OAuthStartRequest},
     regime::{RegimeScanRequest, scan as scan_regimes},
     replay::{ReplaySnapshotParams, ReplayStore},
@@ -461,6 +462,17 @@ async fn backtest_run(
         .map_err(ApiError::bad_request)
 }
 
+async fn strategy_manifest(
+    Json(request): Json<BacktestRequest>,
+) -> Result<Json<Value>, ApiError> {
+    validate_minute(&request.entry_minute)?;
+    validate_minute(&request.exit_minute)?;
+    freeze_manifest(&request)
+        .and_then(|manifest| serde_json::to_value(manifest).map_err(anyhow::Error::from))
+        .map(Json)
+        .map_err(ApiError::bad_request)
+}
+
 async fn attribution_run(
     State(state): State<AppState>,
     Json(request): Json<AttributionRequest>,
@@ -630,6 +642,7 @@ fn app(state: AppState, frontend_dist: PathBuf) -> Router {
         .route("/api/live/volatility-context", get(live_volatility_context))
         .route("/api/strategy/analyze", post(strategy_analyze))
         .route("/api/research/backtest", post(backtest_run))
+        .route("/api/research/manifest", post(strategy_manifest))
         .route("/api/research/attribution", post(attribution_run))
         .route("/api/research/regime-scan", post(regime_scan))
         .route("/api/research/walk-forward", post(walk_forward_run))
