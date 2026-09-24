@@ -341,6 +341,63 @@ mod tests {
         let _ = fs::remove_file(path);
     }
 
+    #[tokio::test]
+    async fn holdout_seal_becomes_inactive_after_open() {
+        let path = std::env::temp_dir().join(format!(
+            "option-workstation-holdout-audit-{}.jsonl",
+            Utc::now().timestamp_nanos_opt().unwrap()
+        ));
+        let store = AuditStore::new(path.clone());
+        store
+            .append(AuditCaptureRequest {
+                kind: "holdout_seal".into(),
+                mode: "system".into(),
+                symbol: "SPY".into(),
+                snapshot_id: None,
+                payload: serde_json::json!({
+                    "commitment": "commit-1",
+                    "strategy_id": "strategy-1",
+                    "holdout_start": "2026-08-01",
+                    "holdout_end": "2026-08-31"
+                }),
+            })
+            .await
+            .unwrap();
+
+        assert!(!store.holdout_opened("commit-1").await.unwrap());
+        assert!(
+            store
+                .active_holdout_seal("strategy-1")
+                .await
+                .unwrap()
+                .is_some()
+        );
+
+        store
+            .append(AuditCaptureRequest {
+                kind: "holdout_open".into(),
+                mode: "system".into(),
+                symbol: "SPY".into(),
+                snapshot_id: None,
+                payload: serde_json::json!({
+                    "commitment": "commit-1",
+                    "strategy_id": "strategy-1"
+                }),
+            })
+            .await
+            .unwrap();
+
+        assert!(store.holdout_opened("commit-1").await.unwrap());
+        assert!(
+            store
+                .active_holdout_seal("strategy-1")
+                .await
+                .unwrap()
+                .is_none()
+        );
+        let _ = fs::remove_file(path);
+    }
+
     #[test]
     fn credentials_are_rejected() {
         let request = AuditCaptureRequest {
