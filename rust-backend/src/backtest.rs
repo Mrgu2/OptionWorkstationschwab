@@ -16,7 +16,7 @@ pub struct BacktestLegRule {
     pub ratio: u32,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct CostModel {
     #[serde(default)]
     pub commission_per_contract: f64,
@@ -24,14 +24,6 @@ pub struct CostModel {
     pub slippage_per_contract: f64,
 }
 
-impl Default for CostModel {
-    fn default() -> Self {
-        Self {
-            commission_per_contract: 0.0,
-            slippage_per_contract: 0.0,
-        }
-    }
-}
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct ExitRules {
