@@ -262,13 +262,8 @@ pub fn run_backtest(
             let exit_costs = execution_cost(&selected_legs, request.quantity, &request.costs);
             let gross_pnl = entry_analysis.entry_cash_flow + exit_analysis.liquidation_value;
             let pnl = gross_pnl - entry_costs - exit_costs;
-            let exit_reason = choose_exit_reason(
-                pnl,
-                risk_basis,
-                exit_chain.dte,
-                holding_sessions,
-                request,
-            );
+            let exit_reason =
+                choose_exit_reason(pnl, risk_basis, exit_chain.dte, holding_sessions, request);
             if let Some(exit_reason) = exit_reason {
                 exit_result = Some((
                     exit_date.clone(),
@@ -399,12 +394,14 @@ fn validate_request(request: &BacktestRequest) -> anyhow::Result<()> {
         "target_dte must be between 0 and 1000"
     );
     anyhow::ensure!(
-        request.costs.commission_per_contract >= 0.0
-            && request.costs.slippage_per_contract >= 0.0,
+        request.costs.commission_per_contract >= 0.0 && request.costs.slippage_per_contract >= 0.0,
         "execution costs must be non-negative"
     );
     if let Some(value) = request.exits.take_profit_pct_of_risk {
-        anyhow::ensure!(value > 0.0 && value <= 10.0, "invalid take-profit threshold");
+        anyhow::ensure!(
+            value > 0.0 && value <= 10.0,
+            "invalid take-profit threshold"
+        );
     }
     if let Some(value) = request.exits.stop_loss_pct_of_risk {
         anyhow::ensure!(value > 0.0 && value <= 10.0, "invalid stop-loss threshold");

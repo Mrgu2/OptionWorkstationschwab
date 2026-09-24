@@ -43,8 +43,8 @@ use crate::{
     models::{CredentialRequest, LiveSessionRequest, OAuthStartRequest},
     regime::{RegimeScanRequest, scan as scan_regimes},
     replay::{ReplaySnapshotParams, ReplayStore},
-    walk_forward::{WalkForwardRequest, run_walk_forward},
     strategy::{StrategyRequest, analyze_strategy},
+    walk_forward::{WalkForwardRequest, run_walk_forward},
 };
 
 #[derive(Clone)]
@@ -462,9 +462,7 @@ async fn backtest_run(
         .map_err(ApiError::bad_request)
 }
 
-async fn strategy_manifest(
-    Json(request): Json<BacktestRequest>,
-) -> Result<Json<Value>, ApiError> {
+async fn strategy_manifest(Json(request): Json<BacktestRequest>) -> Result<Json<Value>, ApiError> {
     validate_minute(&request.entry_minute)?;
     validate_minute(&request.exit_minute)?;
     freeze_manifest(&request)

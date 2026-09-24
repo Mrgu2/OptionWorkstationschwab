@@ -208,11 +208,7 @@ pub fn run_walk_forward(
             );
         };
 
-        let test_request = with_window(
-            &request.candidates[selected_index],
-            &test_start,
-            &test_end,
-        );
+        let test_request = with_window(&request.candidates[selected_index], &test_start, &test_end);
         let test_report = run_backtest(store, &test_request)?;
         all_oos_trades.extend(test_report.trades.iter().cloned());
         *selected_strategy_frequency
@@ -242,7 +238,10 @@ pub fn run_walk_forward(
         }
     }
 
-    anyhow::ensure!(!folds.is_empty(), "no complete walk-forward folds were produced");
+    anyhow::ensure!(
+        !folds.is_empty(),
+        "no complete walk-forward folds were produced"
+    );
 
     let out_of_sample_stats = summarize(&all_oos_trades);
     let profitable_folds = folds
