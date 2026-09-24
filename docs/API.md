@@ -214,6 +214,29 @@ The candidate set should represent small parameter perturbations. Feeding
 unrelated strategies into this endpoint weakens the interpretation of the
 stability statistics.
 
+### Statistical inference and multiple-testing controls
+
+`POST /api/research/inference`
+
+Runs deterministic trade-level bootstrap inference for one to one hundred
+candidate strategy definitions. Each eligible candidate receives a percentile
+bootstrap confidence interval for average P/L and a one-sided mean-centered
+bootstrap p-value for the hypothesis that average P/L is greater than zero.
+
+Because parameter searches create a family of simultaneous hypotheses, the
+response also reports Holm-adjusted p-values for family-wise error control and
+Benjamini-Hochberg adjusted p-values for false-discovery-rate control.
+
+The request accepts the candidate strategies, bootstrap iteration count, alpha,
+and minimum trade count. The default is 2,000 iterations, alpha 0.05, and ten
+trades.
+
+The bootstrap resamples completed trades as independent units. Serial
+dependence, clustered volatility regimes, and overlapping exposures can make
+trade-level intervals too narrow. These diagnostics quantify sampling
+uncertainty and data-mining risk and should be interpreted alongside walk
+forward validation, parameter stability, and the sealed final holdout.
+
 ### Rolling backtest
 
 `POST /api/research/rolling`
