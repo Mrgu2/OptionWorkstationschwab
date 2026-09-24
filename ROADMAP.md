@@ -34,6 +34,8 @@ This roadmap describes direction, not a delivery promise.
 - [x] reproducible strategy manifests with deterministic strategy IDs;
 - [x] explicit commission/slippage assumptions and deterministic exit rules;
 - [x] anchored and rolling walk-forward validation with train-only candidate selection;
+- [x] portfolio-level capital accounting with bounded-risk admission and overlapping-position constraints;
+- [x] integrated Research UI for manifests, backtests, regime scans, walk-forward validation, portfolio simulation, and P/L attribution;
 - research result export without provider-owned raw data.
 
 ## Before 1.0
@@ -50,8 +52,8 @@ Real-money automated trading is not on the roadmap.
 ## Research Lab v1 follow-ups
 
 The research lab now has frozen manifests, execution-cost assumptions,
-take-profit/stop-loss/DTE exits, and walk-forward validation. The next reliability
-work should focus on portfolio-level capital accounting, overlapping-position
-constraints, walk-forward result export, a final untouched holdout workflow, and
-then the Research UI. Rolling-position rules remain a separate strategy-engine
-extension.
+take-profit/stop-loss/DTE exits, walk-forward validation, portfolio-level capital
+accounting, and an integrated Research UI. The next reliability work should
+focus on a final untouched holdout workflow, mark-to-market portfolio drawdown,
+walk-forward result export, rolling-position rules, and parameter-stability
+diagnostics.
