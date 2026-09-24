@@ -128,6 +128,17 @@ impl AuditStore {
             .find(|record| record.id == id)
             .ok_or_else(|| anyhow!("audit record not found"))
     }
+
+    pub async fn recent_records(&self, limit: usize) -> anyhow::Result<Vec<AuditRecord>> {
+        let _guard = self.lock.lock().await;
+        let mut records: Vec<_> = read_records(&self.path)?
+            .into_iter()
+            .rev()
+            .take(limit.clamp(1, 500))
+            .collect();
+        records.reverse();
+        Ok(records)
+    }
 }
 
 fn read_records(path: &Path) -> anyhow::Result<Vec<AuditRecord>> {
