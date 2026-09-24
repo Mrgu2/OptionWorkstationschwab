@@ -174,6 +174,57 @@ average P/L and the selected strategies' training average P/L.
 Test windows are required to be non-overlapping. Trades are constrained to the
 active fold window so an exit cannot consume prices from a later fold.
 
+### Final untouched holdout
+
+`POST /api/research/holdout/seal`
+
+Reserves the final N trading sessions for one frozen strategy definition. The
+response contains a SHA-256 commitment over the strategy ID and the development
+and holdout boundaries, but exposes no holdout performance.
+
+The seal is also written to the append-only audit ledger. While the seal remains
+unopened, ordinary backtests using the same strategy ID are blocked from
+overlapping the reserved holdout window.
+
+`POST /api/research/holdout/open`
+
+Recomputes and verifies the commitment, records the opening event in the audit
+ledger, and reveals the holdout backtest. A commitment can be opened only once.
+A strategy or boundary change after sealing fails commitment verification.
+
+This protocol cannot prevent a researcher from forming a different strategy
+after seeing the same calendar period through some other route. It does make the
+declared final test auditable and prevents accidental reuse through the normal
+same-strategy backtest endpoint.
+
+### Parameter stability
+
+`POST /api/research/stability`
+
+Runs one to one hundred nearby strategy definitions over the same evaluation
+window. The first candidate is the declared base strategy. The response reports
+neighbor profitability, base-sign survival, median and worst average P/L,
+cross-candidate dispersion, drawdown, and per-candidate statistics.
+
+The candidate set should represent small parameter perturbations. Feeding
+unrelated strategies into this endpoint weakens the interpretation of the
+stability statistics.
+
+### Rolling backtest
+
+`POST /api/research/rolling`
+
+Runs a separate rolling-strategy engine around a base backtest definition. The
+request specifies a DTE trigger, a new target DTE, and a maximum number of
+rolls. When the trigger is reached, the engine liquidates the existing
+contracts and opens newly delta-selected contracts at the same configured
+minute.
+
+Every roll records the old and new expiration, both leg sets, segment P/L, and
+the close-plus-reopen execution costs. Take-profit and stop-loss checks occur
+before the roll decision. The rolling strategy has its own deterministic ID so
+its results cannot be confused with the non-rolling base strategy.
+
 ### Portfolio capital engine
 
 `POST /api/research/portfolio`
@@ -188,11 +239,15 @@ costs as capital at risk. By default, positions without a finite max-loss
 estimate are rejected.
 
 The response includes accepted and rejected trades, rejection reasons, ending
-capital, realized return, peak open risk, maximum realized drawdown, modeled
-costs, per-strategy P/L contribution, and an equity curve.
+capital, realized return, peak open risk, realized drawdown, modeled costs,
+per-strategy P/L contribution, and both realized and daily mark-to-market equity
+curves.
 
-Portfolio v1 marks equity when positions exit. It therefore reports realized
-drawdown and can understate intratrade mark-to-market stress.
+For open positions the MTM engine replays the same selected option contracts at
+the configured exit minute, values liquidation on the executable side, and
+deducts hypothetical exit costs. Missing historical marks are never
+forward-filled. Incomplete points are flagged and excluded from MTM drawdown
+statistics.
 
 ### Strategy regime scan
 
@@ -220,17 +275,31 @@ hold period is session-based and the contract selector targets delta.
 
 Walk-forward validation reduces in-sample selection bias but does not eliminate
 researcher degrees of freedom. Candidate grids, thresholds, universes, and
-selection metrics should be declared before inspecting OOS results, and a final
-untouched holdout set remains advisable for consequential research claims.
+selection metrics should be declared before inspecting OOS results. The sealed
+holdout protocol supplies a final auditable test after those decisions are
+frozen.
+
+Parameter-stability analysis measures whether nearby choices behave similarly;
+it does not convert an in-sample pattern into independent evidence. Rolling
+backtests also increase the number of modeled decisions and therefore require
+the same walk-forward and holdout discipline.
 
 
 ## Research Lab UI
 
 The workstation layout switch includes a Research view. It exposes the strategy
 manifest, contract-selection rules, execution costs, deterministic exits,
-backtest results, regime slices, walk-forward candidate grids, portfolio
-constraints, and one-click P/L attribution for historical trades.
+backtest results, regime slices, walk-forward candidate grids, parameter
+stability, sealed final holdouts, rolling-strategy tests, portfolio constraints,
+daily MTM risk, and one-click P/L attribution for historical trades.
 
 The UI is a client of the same local research APIs. Results retain the strategy
 ID and engine assumptions so a visual experiment can be reproduced through the
 API.
+
+
+### Research result export
+
+The Research UI can export a versioned JSON research bundle containing strategy
+manifests and derived research reports currently visible in the UI. Raw option
+chains and provider-owned replay files are not included in the export.
