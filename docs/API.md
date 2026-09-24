@@ -97,3 +97,66 @@ Every derived response should expose, directly or through its parent snapshot:
 
 This contract intentionally does not expose licensed raw market data through a
 public endpoint.
+
+
+## Research lab APIs
+
+The research lab endpoints operate only on locally available replay data and do
+not submit orders.
+
+### Backtest
+
+`POST /api/research/backtest`
+
+Runs a point-in-time options strategy backtest. Contracts are selected from the
+entry snapshot by target delta and are then held as the same contracts until the
+configured exit session. Buys use ask prices, sells use bid prices, and exit
+liquidation uses the opposite executable side.
+
+The request supports:
+
+- symbol and optional start/end dates;
+- entry and exit minute;
+- target DTE;
+- hold period in available trading sessions;
+- quantity;
+- one to eight call/put legs with side, target delta, and ratio.
+
+The response includes every trade, skipped sessions, cumulative P/L, win rate,
+profit factor, median P/L, and maximum drawdown. The response also records the
+entry ATM IV, net GEX, gamma-flip relationship, RR25, BF25, and quote quality so
+later regime analysis can be reproduced.
+
+### P/L attribution
+
+`POST /api/research/attribution`
+
+Explains realized option P/L between two replay snapshots using entry delta,
+gamma, theta, and vega. Vanna and charm are returned as diagnostics. They are not
+added to explained P/L in v1 because doing so naively can double-count the same
+spot/volatility/time interaction. Any unexplained amount remains visible as a
+residual.
+
+### Strategy regime scan
+
+`POST /api/research/regime-scan`
+
+Runs the same point-in-time backtest and slices results by ATM IV regime, net GEX
+sign, and whether spot was above or below gamma flip at entry. Regime buckets
+are descriptive subsets of the same sample and are not independent validation.
+
+### Trade journal replay
+
+`GET /api/research/journal?symbol=SPY&limit=200`
+
+Returns verified audit-ledger events in original ledger order. Optional symbol
+filtering preserves snapshot IDs and the original recorded payload. Missing
+decisions are never reconstructed as though they had been recorded.
+
+## Research limitations
+
+Backtest v1 intentionally omits commissions, taxes, early assignment, dividends,
+market impact, partial fills, and broker margin rules. The hold period is
+session-based and the v1 contract selector targets delta. Any performance claim
+must therefore state these assumptions and should use holdout or walk-forward
+validation before treating a historical pattern as persistent edge.
