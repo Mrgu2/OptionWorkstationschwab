@@ -10,6 +10,7 @@ mod models;
 mod portfolio;
 mod regime;
 mod replay;
+mod rolling;
 mod stability;
 mod strategy;
 mod volatility;
@@ -48,6 +49,7 @@ use crate::{
     portfolio::{PortfolioRequest, run_portfolio},
     regime::{RegimeScanRequest, scan as scan_regimes},
     replay::{ReplaySnapshotParams, ReplayStore},
+    rolling::{RollingRequest, run_rolling_backtest},
     stability::{StabilityRequest, analyze_stability},
     strategy::{StrategyRequest, analyze_strategy},
     walk_forward::{WalkForwardRequest, run_walk_forward},
@@ -636,6 +638,18 @@ async fn stability_run(
         .map_err(ApiError::bad_request)
 }
 
+async fn rolling_run(
+    State(state): State<AppState>,
+    Json(request): Json<RollingRequest>,
+) -> Result<Json<Value>, ApiError> {
+    validate_minute(&request.base.entry_minute)?;
+    validate_minute(&request.base.exit_minute)?;
+    run_rolling_backtest(&state.replay, &request)
+        .and_then(|report| serde_json::to_value(report).map_err(anyhow::Error::from))
+        .map(Json)
+        .map_err(ApiError::bad_request)
+}
+
 async fn journal_replay(
     State(state): State<AppState>,
     Query(query): Query<JournalReplayQuery>,
@@ -775,6 +789,7 @@ fn app(state: AppState, frontend_dist: PathBuf) -> Router {
         .route("/api/research/walk-forward", post(walk_forward_run))
         .route("/api/research/portfolio", post(portfolio_run))
         .route("/api/research/stability", post(stability_run))
+        .route("/api/research/rolling", post(rolling_run))
         .route("/api/research/journal", get(journal_replay))
         .route(
             "/api/audit/records",
