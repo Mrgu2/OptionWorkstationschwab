@@ -184,29 +184,6 @@ impl AuditStore {
             .collect())
     }
 
-    pub async fn active_holdout_seal(&self, strategy_id: &str) -> anyhow::Result<Option<Value>> {
-        let _guard = self.lock.lock().await;
-        let records = read_records(&self.path)?;
-        for record in records.iter().rev() {
-            if record.kind != "holdout_seal"
-                || record.payload.get("strategy_id").and_then(Value::as_str) != Some(strategy_id)
-            {
-                continue;
-            }
-            let Some(commitment) = record.payload.get("commitment").and_then(Value::as_str) else {
-                continue;
-            };
-            let opened = records.iter().any(|candidate| {
-                candidate.kind == "holdout_open"
-                    && candidate.payload.get("commitment").and_then(Value::as_str)
-                        == Some(commitment)
-            });
-            if !opened {
-                return Ok(Some(record.payload.clone()));
-            }
-        }
-        Ok(None)
-    }
 }
 
 fn read_records(path: &Path) -> anyhow::Result<Vec<AuditRecord>> {
