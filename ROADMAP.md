@@ -38,6 +38,7 @@ This roadmap describes direction, not a delivery promise.
 - [x] integrated Research UI for manifests, backtests, regime scans, walk-forward validation, portfolio simulation, and P/L attribution;
 - [x] sealed final untouched holdout workflow with audit-ledger commitments;
 - [x] parameter-stability diagnostics across nearby strategy definitions;
+- [x] bootstrap confidence intervals with Holm family-wise and Benjamini-Hochberg FDR controls;
 - [x] daily mark-to-market portfolio drawdown with explicit missing marks;
 - [x] deterministic rolling-strategy backtest with per-roll costs and segment P/L;
 - [x] research result export without provider-owned raw data.
@@ -62,5 +63,5 @@ accounting with daily MTM drawdown, a deterministic rolling engine, research
 export, and an integrated Research UI.
 
 The next reliability work should focus on synthetic end-to-end research
-fixtures, bootstrap confidence intervals, multiple-testing controls, portfolio
-Greeks through time, and reproducible batch experiment manifests.
+fixtures, block bootstrap for serial dependence, portfolio Greeks through time,
+and reproducible batch experiment manifests.
