@@ -73,10 +73,7 @@ pub fn run_inference(
         request.alpha > 0.0 && request.alpha < 0.5,
         "alpha must be in (0, 0.5)"
     );
-    anyhow::ensure!(
-        request.min_trades >= 3,
-        "min_trades must be at least 3"
-    );
+    anyhow::ensure!(request.min_trades >= 3, "min_trades must be at least 3");
 
     let mut candidates = Vec::with_capacity(request.candidates.len());
     let mut eligible_indices = Vec::new();
@@ -94,12 +91,8 @@ pub fn run_inference(
 
         if pnls.len() >= request.min_trades {
             let seed = seed_from_strategy(&strategy_id);
-            let (lower, upper) = bootstrap_mean_ci(
-                &pnls,
-                request.bootstrap_iterations,
-                request.alpha,
-                seed,
-            );
+            let (lower, upper) =
+                bootstrap_mean_ci(&pnls, request.bootstrap_iterations, request.alpha, seed);
             let p_value = centered_bootstrap_positive_mean_p(
                 &pnls,
                 request.bootstrap_iterations,
@@ -144,7 +137,10 @@ pub fn run_inference(
         candidates[candidate_index].passes_bh_fdr = bh[position] <= request.alpha;
     }
 
-    let holm_discoveries = candidates.iter().filter(|candidate| candidate.passes_holm).count();
+    let holm_discoveries = candidates
+        .iter()
+        .filter(|candidate| candidate.passes_holm)
+        .count();
     let bh_fdr_discoveries = candidates
         .iter()
         .filter(|candidate| candidate.passes_bh_fdr)
@@ -177,12 +173,7 @@ fn seed_from_strategy(strategy_id: &str) -> u64 {
     u64::from_le_bytes(bytes).max(1)
 }
 
-fn bootstrap_mean_ci(
-    values: &[f64],
-    iterations: usize,
-    alpha: f64,
-    seed: u64,
-) -> (f64, f64) {
+fn bootstrap_mean_ci(values: &[f64], iterations: usize, alpha: f64, seed: u64) -> (f64, f64) {
     let mut rng = XorShift64::new(seed);
     let mut means = Vec::with_capacity(iterations);
     for _ in 0..iterations {

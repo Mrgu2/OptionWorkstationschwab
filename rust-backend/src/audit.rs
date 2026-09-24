@@ -183,7 +183,6 @@ impl AuditStore {
             .map(|record| record.payload.clone())
             .collect())
     }
-
 }
 
 fn read_records(path: &Path) -> anyhow::Result<Vec<AuditRecord>> {
