@@ -3,6 +3,7 @@ mod attribution;
 mod audit;
 mod backtest;
 mod holdout;
+mod inference;
 mod journal;
 mod live;
 mod manifest;
@@ -42,6 +43,7 @@ use crate::{
     audit::{AuditCaptureRequest, AuditStore},
     backtest::{BacktestRequest, run_backtest},
     holdout::{HoldoutOpenRequest, HoldoutPlanRequest, open_holdout, plan_holdout},
+    inference::{InferenceRequest, run_inference},
     journal::build as build_journal,
     live::{LiveManager, option_retry_after_ms},
     manifest::freeze_manifest,
@@ -664,6 +666,21 @@ async fn stability_run(
         .map_err(ApiError::bad_request)
 }
 
+async fn inference_run(
+    State(state): State<AppState>,
+    Json(request): Json<InferenceRequest>,
+) -> Result<Json<Value>, ApiError> {
+    for candidate in &request.candidates {
+        validate_minute(&candidate.entry_minute)?;
+        validate_minute(&candidate.exit_minute)?;
+        ensure_holdout_not_sealed(&state, candidate).await?;
+    }
+    run_inference(&state.replay, &request)
+        .and_then(|report| serde_json::to_value(report).map_err(anyhow::Error::from))
+        .map(Json)
+        .map_err(ApiError::bad_request)
+}
+
 async fn rolling_run(
     State(state): State<AppState>,
     Json(request): Json<RollingRequest>,
@@ -816,6 +833,7 @@ fn app(state: AppState, frontend_dist: PathBuf) -> Router {
         .route("/api/research/walk-forward", post(walk_forward_run))
         .route("/api/research/portfolio", post(portfolio_run))
         .route("/api/research/stability", post(stability_run))
+        .route("/api/research/inference", post(inference_run))
         .route("/api/research/rolling", post(rolling_run))
         .route("/api/research/journal", get(journal_replay))
         .route(
