@@ -368,7 +368,7 @@ pub fn run_backtest(
     })
 }
 
-fn validate_request(request: &BacktestRequest) -> anyhow::Result<()> {
+pub(crate) fn validate_request(request: &BacktestRequest) -> anyhow::Result<()> {
     anyhow::ensure!(
         !request.legs.is_empty() && request.legs.len() <= 8,
         "backtest requires 1-8 legs"
@@ -453,7 +453,7 @@ fn choose_exit_reason(
     (holding_sessions >= request.hold_trading_days).then(|| "max_hold".into())
 }
 
-fn execution_cost(legs: &[StrategyLegInput], quantity: u32, costs: &CostModel) -> f64 {
+pub(crate) fn execution_cost(legs: &[StrategyLegInput], quantity: u32, costs: &CostModel) -> f64 {
     let contracts = legs
         .iter()
         .map(|leg| leg.ratio as f64 * quantity as f64)
@@ -461,7 +461,7 @@ fn execution_cost(legs: &[StrategyLegInput], quantity: u32, costs: &CostModel) -
     contracts * (costs.commission_per_contract + costs.slippage_per_contract)
 }
 
-fn select_expiration(
+pub(crate) fn select_expiration(
     store: &ReplayStore,
     symbol: &str,
     trading_date: &str,
@@ -480,7 +480,7 @@ fn select_expiration(
         .map(|(expiry, _)| expiry)
 }
 
-fn select_legs(
+pub(crate) fn select_legs(
     chain: &crate::models::ChainSnapshot,
     rules: &[BacktestLegRule],
 ) -> anyhow::Result<Vec<StrategyLegInput>> {
