@@ -401,7 +401,7 @@ fn summarize(trades: &[BacktestTrade]) -> BacktestStats {
         .sum::<f64>();
     let mut pnls: Vec<f64> = trades.iter().map(|trade| trade.pnl).collect();
     pnls.sort_by(f64::total_cmp);
-    let median_pnl = if pnls.len() % 2 == 0 {
+    let median_pnl = if pnls.len().is_multiple_of(2) {
         (pnls[pnls.len() / 2 - 1] + pnls[pnls.len() / 2]) / 2.0
     } else {
         pnls[pnls.len() / 2]
