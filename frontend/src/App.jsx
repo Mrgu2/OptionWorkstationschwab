@@ -28,6 +28,7 @@ import Chart from './components/Chart'
 import ChainTable from './components/ChainTable'
 import ExecutionPanel from './components/ExecutionPanel'
 import { LiveReadout, Metric, Panel } from './components/Primitives'
+import ResearchLab from './components/ResearchLab'
 import StrategyWorkbench from './components/StrategyWorkbench'
 import { api, apiJson, websocketUrl } from './lib/api'
 
@@ -915,7 +916,7 @@ function App() {
           </> : <label className="live-symbol-control" title="实时美股代码"><span>US</span><input list="live-symbols" value={liveSymbolDraft} maxLength={15} onChange={(event) => setLiveSymbolDraft(event.target.value.toUpperCase())} onKeyDown={(event) => event.key === 'Enter' && startLive()} aria-label="实时美股代码" /><datalist id="live-symbols">{catalog?.symbols.map((symbol) => <option key={symbol} value={symbol} />)}</datalist></label>}
           <select className="date-select compact" value={pricingMode} onChange={(event) => setPricingMode(event.target.value)}><option value="micro">Micro</option><option value="mid">Mid</option><option value="ask">Ask</option></select>
           <select className="date-select compact" value={dealerModel} onChange={(event) => setDealerModel(event.target.value)}><option value="classic">Call+/Put-</option><option value="short_all">Dealer Short</option><option value="long_all">Dealer Long</option></select>
-          <div className="segments layout-switch" aria-label="工作台布局">{[['dense', '总览'], ['vol', '波动率'], ['trade', '交易']].map(([value, label]) => <button key={value} className={layout === value ? 'active' : ''} onClick={() => setLayout(value)}>{label}</button>)}</div>
+          <div className="segments layout-switch" aria-label="工作台布局">{[['dense', '总览'], ['vol', '波动率'], ['trade', '交易'], ['research', '研究']].map(([value, label]) => <button key={value} className={layout === value ? 'active' : ''} onClick={() => setLayout(value)}>{label}</button>)}</div>
           <select className="workspace-select" value={workspaceId} onChange={(event) => restoreWorkspace(event.target.value)} title="恢复研究工作区"><option value="">工作区</option>{workspaces.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
           <button className="icon-button action" title="保存研究工作区" onClick={saveWorkspace}><Bookmark size={15} /></button>
           <a className="icon-button action" href="/guide.html" title="打开初学者指南" aria-label="打开初学者指南"><BookOpen size={15} /></a>
@@ -985,6 +986,9 @@ function App() {
         </Panel>
         <Panel id="chain" className="chain-panel" title="镜像期权链" icon={<TableProperties size={14} />} tools={<span className="muted-label">Q {chain?.quality?.usable_pct ?? '--'}% · {pricingMode}</span>}>
           <ChainTable chain={chain} onAdd={addStrategyLeg} onFocus={setFocusStrike} focusStrike={focusStrike} />
+        </Panel>
+        <Panel id="research-lab" className="research-lab-panel" title="研究实验室" icon={<Activity size={14} />} collapsible={false}>
+          <ResearchLab catalog={catalog} defaultSymbol={activeSymbol} pricingMode={pricingMode} dealerModel={dealerModel} />
         </Panel>
       </main>
 
