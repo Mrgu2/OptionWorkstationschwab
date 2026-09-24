@@ -151,6 +151,39 @@ impl AuditStore {
         }))
     }
 
+    pub async fn active_holdout_seals_for_symbol(
+        &self,
+        symbol: &str,
+    ) -> anyhow::Result<Vec<Value>> {
+        let _guard = self.lock.lock().await;
+        let records = read_records(&self.path)?;
+        let opened: std::collections::HashSet<String> = records
+            .iter()
+            .filter(|record| record.kind == "holdout_open")
+            .filter_map(|record| {
+                record
+                    .payload
+                    .get("commitment")
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+            })
+            .collect();
+
+        Ok(records
+            .iter()
+            .filter(|record| {
+                record.kind == "holdout_seal"
+                    && record.symbol.eq_ignore_ascii_case(symbol)
+                    && record
+                        .payload
+                        .get("commitment")
+                        .and_then(Value::as_str)
+                        .is_some_and(|commitment| !opened.contains(commitment))
+            })
+            .map(|record| record.payload.clone())
+            .collect())
+    }
+
     pub async fn active_holdout_seal(&self, strategy_id: &str) -> anyhow::Result<Option<Value>> {
         let _guard = self.lock.lock().await;
         let records = read_records(&self.path)?;
@@ -338,6 +371,47 @@ mod tests {
             .replace("\"spot\":100", "\"spot\":101");
         fs::write(&path, tampered).unwrap();
         assert!(store.list(10).await.is_err());
+        let _ = fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn symbol_holdout_lock_ignores_other_symbols() {
+        let path = std::env::temp_dir().join(format!(
+            "option-workstation-symbol-holdout-{}.jsonl",
+            Utc::now().timestamp_nanos_opt().unwrap()
+        ));
+        let store = AuditStore::new(path.clone());
+        store
+            .append(AuditCaptureRequest {
+                kind: "holdout_seal".into(),
+                mode: "system".into(),
+                symbol: "SPY".into(),
+                snapshot_id: None,
+                payload: serde_json::json!({
+                    "commitment": "spy-commitment",
+                    "strategy_id": "spy-strategy",
+                    "holdout_start": "2026-08-01",
+                    "holdout_end": "2026-08-31"
+                }),
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(
+            store
+                .active_holdout_seals_for_symbol("spy")
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(
+            store
+                .active_holdout_seals_for_symbol("QQQ")
+                .await
+                .unwrap()
+                .is_empty()
+        );
         let _ = fs::remove_file(path);
     }
 
