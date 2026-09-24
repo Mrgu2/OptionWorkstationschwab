@@ -83,6 +83,7 @@ pub struct BacktestTrade {
     pub total_costs: f64,
     pub pnl: f64,
     pub risk_basis: f64,
+    pub bounded_risk: bool,
     pub exit_reason: String,
     pub holding_sessions: usize,
     pub return_on_debit: Option<f64>,
@@ -222,6 +223,7 @@ pub fn run_backtest(
 
         let entry_costs = execution_cost(&selected_legs, request.quantity, &request.costs);
         let debit = (-entry_analysis.entry_cash_flow).max(0.0);
+        let bounded_risk = entry_analysis.max_loss.is_some();
         let risk_basis = entry_analysis
             .max_loss
             .map(f64::abs)
@@ -304,6 +306,7 @@ pub fn run_backtest(
             total_costs: entry_costs + exit_costs,
             pnl,
             risk_basis,
+            bounded_risk,
             exit_reason,
             holding_sessions,
             return_on_debit: (denominator > 0.0).then_some(pnl / denominator),
@@ -620,6 +623,7 @@ mod tests {
             total_costs: 2.0,
             pnl,
             risk_basis: 100.0,
+            bounded_risk: true,
             exit_reason: "max_hold".into(),
             holding_sessions: 1,
             return_on_debit: Some(pnl / 101.0),
