@@ -183,8 +183,11 @@ response contains a SHA-256 commitment over the strategy ID and the development
 and holdout boundaries, but exposes no holdout performance.
 
 The seal is also written to the append-only audit ledger. While the seal remains
-unopened, ordinary backtests using the same strategy ID are blocked from
-overlapping the reserved holdout window.
+unopened, research endpoints for the same symbol are blocked from overlapping
+the reserved holdout window. This includes backtests, regime scans,
+walk-forward validation, stability analysis, portfolio simulation, and rolling
+backtests. The lock is calendar based so changing one strategy parameter cannot
+silently expose the reserved sample.
 
 `POST /api/research/holdout/open`
 
@@ -192,10 +195,11 @@ Recomputes and verifies the commitment, records the opening event in the audit
 ledger, and reveals the holdout backtest. A commitment can be opened only once.
 A strategy or boundary change after sealing fails commitment verification.
 
-This protocol cannot prevent a researcher from forming a different strategy
-after seeing the same calendar period through some other route. It does make the
-declared final test auditable and prevents accidental reuse through the normal
-same-strategy backtest endpoint.
+This protocol controls the workstation's research APIs for the sealed symbol.
+It cannot erase knowledge already obtained outside the workstation or through
+previous exposure to the same calendar period. It makes the declared final test
+auditable and substantially reduces accidental holdout reuse inside the normal
+research workflow.
 
 ### Parameter stability
 
@@ -216,7 +220,8 @@ stability statistics.
 
 Runs a separate rolling-strategy engine around a base backtest definition. The
 request specifies a DTE trigger, a new target DTE, and a maximum number of
-rolls. When the trigger is reached, the engine liquidates the existing
+rolls. The base `hold_trading_days` field is the total rolling-campaign
+horizon, so it should be long enough for the position to reach the roll trigger. When the trigger is reached, the engine liquidates the existing
 contracts and opens newly delta-selected contracts at the same configured
 minute.
 
