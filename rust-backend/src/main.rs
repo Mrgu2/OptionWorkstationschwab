@@ -250,7 +250,6 @@ async fn ensure_holdout_not_sealed(
     Ok(())
 }
 
-
 async fn health(State(state): State<AppState>) -> Json<Value> {
     let connection = state.live.status().await;
     Json(json!({
