@@ -24,6 +24,10 @@ This roadmap describes direction, not a delivery promise.
 
 ## 0.3 Research Workflow
 
+- [x] point-in-time strategy backtest MVP with delta-based contract selection and executable-side pricing;
+- [x] first/second-order P/L attribution with explicit unexplained residual;
+- [x] audit-backed trade journal replay;
+- [x] strategy regime scanner for IV, GEX sign, and gamma-flip context;
 - [x] named local research workspaces with restore/export state;
 - [x] executable quote spread and minimum-leg-quality diagnostics;
 - richer cross-expiry and scenario diagnostics;
@@ -39,3 +43,12 @@ This roadmap describes direction, not a delivery promise.
 - release provenance and signed artifacts.
 
 Real-money automated trading is not on the roadmap.
+
+
+## Research Lab v1 follow-ups
+
+The first research-lab implementation deliberately keeps the strategy language
+small. The next reliability work should add frozen strategy manifests,
+commission/slippage models, stop/target exits, rolling rules, walk-forward
+splits, and portfolio-level capital accounting before broader strategy
+templates or UI automation.
