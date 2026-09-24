@@ -247,19 +247,19 @@ pub fn run_portfolio(
             && let Some(position) = open.remove(&event.candidate_index)
         {
             equity += candidate.trade.pnl;
-                total_modeled_costs += candidate.trade.total_costs;
-                *strategy_contributions
-                    .entry(position.strategy_id)
-                    .or_insert(0.0) += candidate.trade.pnl;
+            total_modeled_costs += candidate.trade.total_costs;
+            *strategy_contributions
+                .entry(position.strategy_id)
+                .or_insert(0.0) += candidate.trade.pnl;
 
-                peak_equity = peak_equity.max(equity);
-                let drawdown = (peak_equity - equity).max(0.0);
-                max_realized_drawdown = max_realized_drawdown.max(drawdown);
-                if peak_equity > 0.0 {
-                    max_realized_drawdown_pct =
-                        max_realized_drawdown_pct.max(drawdown / peak_equity);
-                }
-                let open_risk = open.values().map(|position| position.risk).sum::<f64>();
+            peak_equity = peak_equity.max(equity);
+            let drawdown = (peak_equity - equity).max(0.0);
+            max_realized_drawdown = max_realized_drawdown.max(drawdown);
+            if peak_equity > 0.0 {
+                max_realized_drawdown_pct =
+                    max_realized_drawdown_pct.max(drawdown / peak_equity);
+            }
+            let open_risk = open.values().map(|position| position.risk).sum::<f64>();
             equity_curve.push(PortfolioEquityPoint {
                 timestamp: event.timestamp,
                 equity,
