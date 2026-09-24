@@ -84,10 +84,11 @@ pub fn analyze_stability(
         .ok_or_else(|| anyhow::anyhow!("missing base candidate"))?;
     let base_average_pnl = base_stats.average_pnl;
 
-    let eligible_stats: Vec<&BacktestStats> = rows
+    let eligible_stats: Vec<BacktestStats> = rows
         .iter()
         .map(|(_, stats)| stats)
         .filter(|stats| stats.trades >= request.min_trades)
+        .cloned()
         .collect();
     anyhow::ensure!(
         !eligible_stats.is_empty(),
