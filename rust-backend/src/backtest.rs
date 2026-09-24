@@ -33,21 +33,11 @@ impl Default for CostModel {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct ExitRules {
     pub take_profit_pct_of_risk: Option<f64>,
     pub stop_loss_pct_of_risk: Option<f64>,
     pub exit_dte_lte: Option<i64>,
-}
-
-impl Default for ExitRules {
-    fn default() -> Self {
-        Self {
-            take_profit_pct_of_risk: None,
-            stop_loss_pct_of_risk: None,
-            exit_dte_lte: None,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
