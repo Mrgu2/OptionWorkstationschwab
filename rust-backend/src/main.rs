@@ -211,6 +211,46 @@ fn validate_minute(value: &str) -> Result<(), ApiError> {
     Ok(())
 }
 
+async fn ensure_holdout_not_sealed(
+    state: &AppState,
+    request: &BacktestRequest,
+) -> Result<(), ApiError> {
+    let symbol = state
+        .replay
+        .validate_symbol(&request.symbol)
+        .map_err(ApiError::bad_request)?;
+    let seals = state
+        .audit
+        .active_holdout_seals_for_symbol(&symbol)
+        .await
+        .map_err(ApiError::bad_request)?;
+    let request_start = request.start_date.as_deref().unwrap_or("");
+    let request_end = request.end_date.as_deref().unwrap_or("9999-12-31");
+
+    for seal in seals {
+        let holdout_start = seal
+            .get("holdout_start")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        let holdout_end = seal
+            .get("holdout_end")
+            .and_then(Value::as_str)
+            .unwrap_or("9999-12-31");
+        if request_start <= holdout_end && request_end >= holdout_start {
+            let commitment = seal
+                .get("commitment")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown");
+            return Err(ApiError::conflict(format!(
+                "{symbol} has a sealed untouched holdout from {holdout_start} through {holdout_end} ({:.12}…); research endpoints cannot read this window until the holdout is opened",
+                commitment
+            )));
+        }
+    }
+    Ok(())
+}
+
+
 async fn health(State(state): State<AppState>) -> Json<Value> {
     let connection = state.live.status().await;
     Json(json!({
@@ -464,30 +504,7 @@ async fn backtest_run(
 ) -> Result<Json<Value>, ApiError> {
     validate_minute(&request.entry_minute)?;
     validate_minute(&request.exit_minute)?;
-    let manifest = freeze_manifest(&request).map_err(ApiError::bad_request)?;
-    if let Some(seal) = state
-        .audit
-        .active_holdout_seal(&manifest.strategy_id)
-        .await
-        .map_err(ApiError::bad_request)?
-    {
-        let holdout_start = seal
-            .get("holdout_start")
-            .and_then(Value::as_str)
-            .unwrap_or("");
-        let holdout_end = seal
-            .get("holdout_end")
-            .and_then(Value::as_str)
-            .unwrap_or("9999-12-31");
-        let request_start = request.start_date.as_deref().unwrap_or("");
-        let request_end = request.end_date.as_deref().unwrap_or("9999-12-31");
-        if request_start <= holdout_end && request_end >= holdout_start {
-            return Err(ApiError::conflict(format!(
-                "strategy {} has a sealed untouched holdout from {} through {}; use the holdout open endpoint to reveal it",
-                manifest.strategy_id, holdout_start, holdout_end
-            )));
-        }
-    }
+    ensure_holdout_not_sealed(&state, &request).await?;
     run_backtest(&state.replay, &request)
         .and_then(|report| serde_json::to_value(report).map_err(anyhow::Error::from))
         .map(Json)
@@ -549,6 +566,7 @@ async fn holdout_open(
         ));
     }
 
+    let report = open_holdout(&state.replay, &request).map_err(ApiError::bad_request)?;
     state
         .audit
         .append(AuditCaptureRequest {
@@ -566,8 +584,7 @@ async fn holdout_open(
         .await
         .map_err(ApiError::bad_request)?;
 
-    open_holdout(&state.replay, &request)
-        .and_then(|report| serde_json::to_value(report).map_err(anyhow::Error::from))
+    serde_json::to_value(report)
         .map(Json)
         .map_err(ApiError::bad_request)
 }
@@ -590,6 +607,7 @@ async fn regime_scan(
 ) -> Result<Json<Value>, ApiError> {
     validate_minute(&request.backtest.entry_minute)?;
     validate_minute(&request.backtest.exit_minute)?;
+    ensure_holdout_not_sealed(&state, &request.backtest).await?;
     scan_regimes(&state.replay, &request)
         .and_then(|report| serde_json::to_value(report).map_err(anyhow::Error::from))
         .map(Json)
@@ -603,6 +621,10 @@ async fn walk_forward_run(
     for candidate in &request.candidates {
         validate_minute(&candidate.entry_minute)?;
         validate_minute(&candidate.exit_minute)?;
+        let mut effective = candidate.clone();
+        effective.start_date = request.start_date.clone();
+        effective.end_date = request.end_date.clone();
+        ensure_holdout_not_sealed(&state, &effective).await?;
     }
     run_walk_forward(&state.replay, &request)
         .and_then(|report| serde_json::to_value(report).map_err(anyhow::Error::from))
@@ -617,6 +639,7 @@ async fn portfolio_run(
     for strategy in &request.strategies {
         validate_minute(&strategy.entry_minute)?;
         validate_minute(&strategy.exit_minute)?;
+        ensure_holdout_not_sealed(&state, strategy).await?;
     }
     run_portfolio(&state.replay, &request)
         .and_then(|report| serde_json::to_value(report).map_err(anyhow::Error::from))
@@ -631,6 +654,10 @@ async fn stability_run(
     for candidate in &request.candidates {
         validate_minute(&candidate.entry_minute)?;
         validate_minute(&candidate.exit_minute)?;
+        let mut effective = candidate.clone();
+        effective.start_date = request.start_date.clone();
+        effective.end_date = request.end_date.clone();
+        ensure_holdout_not_sealed(&state, &effective).await?;
     }
     analyze_stability(&state.replay, &request)
         .and_then(|report| serde_json::to_value(report).map_err(anyhow::Error::from))
@@ -644,6 +671,7 @@ async fn rolling_run(
 ) -> Result<Json<Value>, ApiError> {
     validate_minute(&request.base.entry_minute)?;
     validate_minute(&request.base.exit_minute)?;
+    ensure_holdout_not_sealed(&state, &request.base).await?;
     run_rolling_backtest(&state.replay, &request)
         .and_then(|report| serde_json::to_value(report).map_err(anyhow::Error::from))
         .map(Json)
