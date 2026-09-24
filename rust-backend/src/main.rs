@@ -6,6 +6,7 @@ mod journal;
 mod live;
 mod manifest;
 mod models;
+mod portfolio;
 mod regime;
 mod replay;
 mod strategy;
@@ -41,6 +42,7 @@ use crate::{
     live::{LiveManager, option_retry_after_ms},
     manifest::freeze_manifest,
     models::{CredentialRequest, LiveSessionRequest, OAuthStartRequest},
+    portfolio::{PortfolioRequest, run_portfolio},
     regime::{RegimeScanRequest, scan as scan_regimes},
     replay::{ReplaySnapshotParams, ReplayStore},
     strategy::{StrategyRequest, analyze_strategy},
@@ -509,6 +511,20 @@ async fn walk_forward_run(
         .map_err(ApiError::bad_request)
 }
 
+async fn portfolio_run(
+    State(state): State<AppState>,
+    Json(request): Json<PortfolioRequest>,
+) -> Result<Json<Value>, ApiError> {
+    for strategy in &request.strategies {
+        validate_minute(&strategy.entry_minute)?;
+        validate_minute(&strategy.exit_minute)?;
+    }
+    run_portfolio(&state.replay, &request)
+        .and_then(|report| serde_json::to_value(report).map_err(anyhow::Error::from))
+        .map(Json)
+        .map_err(ApiError::bad_request)
+}
+
 async fn journal_replay(
     State(state): State<AppState>,
     Query(query): Query<JournalReplayQuery>,
@@ -644,6 +660,7 @@ fn app(state: AppState, frontend_dist: PathBuf) -> Router {
         .route("/api/research/attribution", post(attribution_run))
         .route("/api/research/regime-scan", post(regime_scan))
         .route("/api/research/walk-forward", post(walk_forward_run))
+        .route("/api/research/portfolio", post(portfolio_run))
         .route("/api/research/journal", get(journal_replay))
         .route(
             "/api/audit/records",
