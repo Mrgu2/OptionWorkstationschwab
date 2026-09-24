@@ -31,7 +31,9 @@ This roadmap describes direction, not a delivery promise.
 - [x] named local research workspaces with restore/export state;
 - [x] executable quote spread and minimum-leg-quality diagnostics;
 - richer cross-expiry and scenario diagnostics;
-- reproducible strategy templates with assumption manifests;
+- [x] reproducible strategy manifests with deterministic strategy IDs;
+- [x] explicit commission/slippage assumptions and deterministic exit rules;
+- [x] anchored and rolling walk-forward validation with train-only candidate selection;
 - research result export without provider-owned raw data.
 
 ## Before 1.0
@@ -47,8 +49,9 @@ Real-money automated trading is not on the roadmap.
 
 ## Research Lab v1 follow-ups
 
-The first research-lab implementation deliberately keeps the strategy language
-small. The next reliability work should add frozen strategy manifests,
-commission/slippage models, stop/target exits, rolling rules, walk-forward
-splits, and portfolio-level capital accounting before broader strategy
-templates or UI automation.
+The research lab now has frozen manifests, execution-cost assumptions,
+take-profit/stop-loss/DTE exits, and walk-forward validation. The next reliability
+work should focus on portfolio-level capital accounting, overlapping-position
+constraints, walk-forward result export, a final untouched holdout workflow, and
+then the Research UI. Rolling-position rules remain a separate strategy-engine
+extension.
