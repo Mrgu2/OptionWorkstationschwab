@@ -1,0 +1,356 @@
+import { useEffect, useMemo, useState } from 'react'
+import Chart from './Chart'
+import { Metric } from './Primitives'
+import { apiJson } from '../lib/api'
+
+function numberValue(value, fallback = 0) {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : fallback
+}
+
+function formatMoney(value) {
+  if (value == null || !Number.isFinite(Number(value))) return '--'
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(Number(value))
+}
+
+function formatPct(value) {
+  if (value == null || !Number.isFinite(Number(value))) return '--'
+  return `${Number(value).toFixed(1)}%`
+}
+
+function clone(value) {
+  return JSON.parse(JSON.stringify(value))
+}
+
+export default function ResearchLab({ catalog, defaultSymbol, pricingMode, dealerModel }) {
+  const dates = catalog?.common_dates || []
+  const [symbol, setSymbol] = useState(defaultSymbol || 'SPY')
+  const [startDate, setStartDate] = useState('')
+  const [endDate, setEndDate] = useState('')
+  const [entryMinute, setEntryMinute] = useState('10:00')
+  const [exitMinute, setExitMinute] = useState('15:45')
+  const [targetDte, setTargetDte] = useState(14)
+  const [holdDays, setHoldDays] = useState(5)
+  const [quantity, setQuantity] = useState(1)
+  const [commission, setCommission] = useState(0.65)
+  const [slippage, setSlippage] = useState(0.05)
+  const [takeProfit, setTakeProfit] = useState(0.5)
+  const [stopLoss, setStopLoss] = useState(0.5)
+  const [exitDte, setExitDte] = useState(3)
+  const [legs, setLegs] = useState([
+    { right: 'PUT', side: 'BUY', target_delta: 0.30, ratio: 1 },
+    { right: 'PUT', side: 'SELL', target_delta: 0.15, ratio: 1 },
+  ])
+  const [candidateGrid, setCandidateGrid] = useState('0.25,0.10\n0.30,0.15\n0.35,0.20')
+  const [trainSessions, setTrainSessions] = useState(60)
+  const [testSessions, setTestSessions] = useState(20)
+  const [anchored, setAnchored] = useState(true)
+  const [initialCapital, setInitialCapital] = useState(100000)
+  const [maxRiskPerTrade, setMaxRiskPerTrade] = useState(5)
+  const [maxTotalRisk, setMaxTotalRisk] = useState(25)
+  const [maxOpenPositions, setMaxOpenPositions] = useState(10)
+  const [result, setResult] = useState(null)
+  const [regime, setRegime] = useState(null)
+  const [walkForward, setWalkForward] = useState(null)
+  const [portfolio, setPortfolio] = useState(null)
+  const [attribution, setAttribution] = useState(null)
+  const [manifest, setManifest] = useState(null)
+  const [status, setStatus] = useState('')
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (defaultSymbol) setSymbol(defaultSymbol)
+  }, [defaultSymbol])
+
+  useEffect(() => {
+    if (!dates.length) return
+    setStartDate((current) => current || dates[Math.max(0, dates.length - 120)] || dates[0])
+    setEndDate((current) => current || dates.at(-1))
+  }, [dates.length])
+
+  const request = useMemo(() => ({
+    symbol,
+    start_date: startDate || null,
+    end_date: endDate || null,
+    entry_minute: entryMinute,
+    exit_minute: exitMinute,
+    hold_trading_days: numberValue(holdDays, 5),
+    target_dte: numberValue(targetDte, 14),
+    quantity: numberValue(quantity, 1),
+    pricing_mode: pricingMode || 'micro',
+    dealer_model: dealerModel || 'classic',
+    costs: {
+      commission_per_contract: numberValue(commission),
+      slippage_per_contract: numberValue(slippage),
+    },
+    exits: {
+      take_profit_pct_of_risk: takeProfit === '' ? null : numberValue(takeProfit),
+      stop_loss_pct_of_risk: stopLoss === '' ? null : numberValue(stopLoss),
+      exit_dte_lte: exitDte === '' ? null : numberValue(exitDte),
+    },
+    legs: legs.map((leg) => ({
+      ...leg,
+      target_delta: numberValue(leg.target_delta),
+      ratio: numberValue(leg.ratio, 1),
+    })),
+  }), [symbol, startDate, endDate, entryMinute, exitMinute, holdDays, targetDte, quantity, pricingMode, dealerModel, commission, slippage, takeProfit, stopLoss, exitDte, legs])
+
+  const candidates = useMemo(() => {
+    const lines = candidateGrid.split(/\n+/).map((line) => line.trim()).filter(Boolean)
+    const parsed = []
+    for (const line of lines) {
+      const deltas = line.split(',').map((value) => Number(value.trim()))
+      if (deltas.length !== legs.length || deltas.some((value) => !Number.isFinite(value))) continue
+      const candidate = clone(request)
+      candidate.legs = candidate.legs.map((leg, index) => ({ ...leg, target_delta: Math.abs(deltas[index]) }))
+      parsed.push(candidate)
+    }
+    return parsed
+  }, [candidateGrid, legs.length, request])
+
+  const run = async (label, action) => {
+    setStatus(label)
+    setError('')
+    try {
+      return await action()
+    } catch (reason) {
+      setError(reason.message)
+      return null
+    } finally {
+      setStatus('')
+    }
+  }
+
+  const runBacktest = async () => {
+    const data = await run('Running backtest', () => apiJson('/api/research/backtest', 'POST', request))
+    if (!data) return
+    setResult(data)
+    setManifest(data.manifest)
+    setAttribution(null)
+  }
+
+  const runRegime = async () => {
+    const data = await run('Scanning regimes', () => apiJson('/api/research/regime-scan', 'POST', { backtest: request }))
+    if (data) setRegime(data)
+  }
+
+  const freezeManifest = async () => {
+    const data = await run('Freezing manifest', () => apiJson('/api/research/manifest', 'POST', request))
+    if (data) setManifest(data)
+  }
+
+  const runWalkForward = async () => {
+    if (!candidates.length) {
+      setError('Candidate grid does not match the current number of legs')
+      return
+    }
+    const data = await run('Running walk forward', () => apiJson('/api/research/walk-forward', 'POST', {
+      candidates,
+      start_date: startDate || null,
+      end_date: endDate || null,
+      train_sessions: numberValue(trainSessions, 60),
+      test_sessions: numberValue(testSessions, 20),
+      step_sessions: numberValue(testSessions, 20),
+      min_train_trades: 10,
+      anchored,
+      selection_metric: 'average_pnl',
+    }))
+    if (data) setWalkForward(data)
+  }
+
+  const runPortfolio = async () => {
+    const strategies = candidates.length ? candidates : [request]
+    const data = await run('Running portfolio', () => apiJson('/api/research/portfolio', 'POST', {
+      strategies,
+      initial_capital: numberValue(initialCapital, 100000),
+      max_open_positions: numberValue(maxOpenPositions, 10),
+      max_risk_pct_per_trade: numberValue(maxRiskPerTrade, 5) / 100,
+      max_total_open_risk_pct: numberValue(maxTotalRisk, 25) / 100,
+      require_bounded_risk: true,
+    }))
+    if (data) setPortfolio(data)
+  }
+
+  const explainTrade = async (trade) => {
+    const data = await run('Attributing P/L', () => apiJson('/api/research/attribution', 'POST', {
+      symbol,
+      entry_date: trade.entry_date,
+      entry_minute: trade.entry_minute,
+      exit_date: trade.exit_date,
+      exit_minute: trade.exit_minute,
+      expiration: trade.expiration,
+      quantity: request.quantity,
+      pricing_mode: request.pricing_mode,
+      dealer_model: request.dealer_model,
+      legs: trade.legs,
+    }))
+    if (data) setAttribution(data)
+  }
+
+  const addLeg = () => {
+    if (legs.length >= 8) return
+    setLegs([...legs, { right: 'CALL', side: 'BUY', target_delta: 0.30, ratio: 1 }])
+  }
+
+  const updateLeg = (index, key, value) => {
+    setLegs(legs.map((leg, legIndex) => legIndex === index ? { ...leg, [key]: value } : leg))
+  }
+
+  const removeLeg = (index) => {
+    if (legs.length <= 1) return
+    setLegs(legs.filter((_, legIndex) => legIndex !== index))
+  }
+
+  const equityOption = result?.equity_curve?.length ? {
+    animation: false,
+    tooltip: { trigger: 'axis' },
+    grid: { left: 54, right: 20, top: 18, bottom: 38 },
+    xAxis: { type: 'category', data: result.equity_curve.map((point) => point.date), axisLabel: { color: '#83909c' } },
+    yAxis: { type: 'value', axisLabel: { color: '#83909c' }, splitLine: { lineStyle: { color: '#1d2730' } } },
+    series: [{ type: 'line', showSymbol: false, data: result.equity_curve.map((point) => point.cumulative_pnl) }],
+  } : null
+
+  const portfolioOption = portfolio?.equity_curve?.length ? {
+    animation: false,
+    tooltip: { trigger: 'axis' },
+    grid: { left: 64, right: 20, top: 18, bottom: 38 },
+    xAxis: { type: 'category', data: portfolio.equity_curve.map((point) => point.timestamp.slice(0, 10)), axisLabel: { color: '#83909c' } },
+    yAxis: { type: 'value', axisLabel: { color: '#83909c' }, splitLine: { lineStyle: { color: '#1d2730' } } },
+    series: [{ type: 'line', showSymbol: false, data: portfolio.equity_curve.map((point) => point.equity) }],
+  } : null
+
+  return <div className="research-lab">
+    <div className="research-lab-grid">
+      <section className="research-config">
+        <div className="research-section-title"><strong>Strategy Manifest</strong><span>{manifest?.strategy_id || 'unfrozen'}</span></div>
+        <div className="research-form-grid">
+          <label>Symbol<select value={symbol} onChange={(event) => setSymbol(event.target.value)}>{(catalog?.symbols || [symbol]).map((item) => <option key={item}>{item}</option>)}</select></label>
+          <label>Start<input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} /></label>
+          <label>End<input type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} /></label>
+          <label>Entry<input type="time" value={entryMinute} onChange={(event) => setEntryMinute(event.target.value)} /></label>
+          <label>Exit<input type="time" value={exitMinute} onChange={(event) => setExitMinute(event.target.value)} /></label>
+          <label>Target DTE<input type="number" min="0" value={targetDte} onChange={(event) => setTargetDte(event.target.value)} /></label>
+          <label>Max hold<input type="number" min="1" value={holdDays} onChange={(event) => setHoldDays(event.target.value)} /></label>
+          <label>Quantity<input type="number" min="1" value={quantity} onChange={(event) => setQuantity(event.target.value)} /></label>
+        </div>
+
+        <div className="research-section-title"><strong>Legs</strong><button onClick={addLeg}>Add leg</button></div>
+        <div className="research-legs">
+          {legs.map((leg, index) => <div className="research-leg" key={index}>
+            <select value={leg.side} onChange={(event) => updateLeg(index, 'side', event.target.value)}><option>BUY</option><option>SELL</option></select>
+            <select value={leg.right} onChange={(event) => updateLeg(index, 'right', event.target.value)}><option>PUT</option><option>CALL</option></select>
+            <label>Δ<input type="number" min="0.01" max="0.99" step="0.01" value={leg.target_delta} onChange={(event) => updateLeg(index, 'target_delta', event.target.value)} /></label>
+            <label>Ratio<input type="number" min="1" max="20" value={leg.ratio} onChange={(event) => updateLeg(index, 'ratio', event.target.value)} /></label>
+            <button className="danger-text" onClick={() => removeLeg(index)}>Remove</button>
+          </div>)}
+        </div>
+
+        <div className="research-section-title"><strong>Execution and exits</strong><span>all values become part of strategy ID</span></div>
+        <div className="research-form-grid">
+          <label>Commission / contract<input type="number" min="0" step="0.01" value={commission} onChange={(event) => setCommission(event.target.value)} /></label>
+          <label>Extra slippage / contract<input type="number" min="0" step="0.01" value={slippage} onChange={(event) => setSlippage(event.target.value)} /></label>
+          <label>Take profit / risk<input type="number" min="0" step="0.05" value={takeProfit} onChange={(event) => setTakeProfit(event.target.value)} /></label>
+          <label>Stop loss / risk<input type="number" min="0" step="0.05" value={stopLoss} onChange={(event) => setStopLoss(event.target.value)} /></label>
+          <label>Exit when DTE ≤<input type="number" min="0" value={exitDte} onChange={(event) => setExitDte(event.target.value)} /></label>
+        </div>
+        <div className="research-actions">
+          <button onClick={freezeManifest} disabled={Boolean(status)}>Freeze manifest</button>
+          <button className="primary" onClick={runBacktest} disabled={Boolean(status)}>Run backtest</button>
+          <button onClick={runRegime} disabled={Boolean(status)}>Scan regimes</button>
+        </div>
+        {status && <div className="research-status">{status}…</div>}
+        {error && <div className="research-error">{error}</div>}
+      </section>
+
+      <section className="research-config">
+        <div className="research-section-title"><strong>Walk Forward</strong><span>{candidates.length} candidates</span></div>
+        <label className="research-wide-label">Candidate delta rows
+          <textarea value={candidateGrid} onChange={(event) => setCandidateGrid(event.target.value)} rows="5" />
+          <small>One row per candidate. Deltas must match the leg count. Example for a two-leg spread: 0.30,0.15</small>
+        </label>
+        <div className="research-form-grid">
+          <label>Train sessions<input type="number" min="10" value={trainSessions} onChange={(event) => setTrainSessions(event.target.value)} /></label>
+          <label>Test sessions<input type="number" min="1" value={testSessions} onChange={(event) => setTestSessions(event.target.value)} /></label>
+          <label className="research-checkbox"><input type="checkbox" checked={anchored} onChange={(event) => setAnchored(event.target.checked)} />Anchored training</label>
+        </div>
+        <div className="research-actions"><button className="primary" onClick={runWalkForward} disabled={Boolean(status)}>Run walk forward</button></div>
+
+        <div className="research-section-title portfolio-title"><strong>Portfolio constraints</strong><span>uses the candidate strategies above</span></div>
+        <div className="research-form-grid">
+          <label>Initial capital<input type="number" min="1" step="1000" value={initialCapital} onChange={(event) => setInitialCapital(event.target.value)} /></label>
+          <label>Risk / trade %<input type="number" min="0.1" max="100" step="0.5" value={maxRiskPerTrade} onChange={(event) => setMaxRiskPerTrade(event.target.value)} /></label>
+          <label>Total open risk %<input type="number" min="0.1" max="100" step="1" value={maxTotalRisk} onChange={(event) => setMaxTotalRisk(event.target.value)} /></label>
+          <label>Max open positions<input type="number" min="1" max="100" value={maxOpenPositions} onChange={(event) => setMaxOpenPositions(event.target.value)} /></label>
+        </div>
+        <div className="research-actions"><button className="primary" onClick={runPortfolio} disabled={Boolean(status)}>Run portfolio</button></div>
+      </section>
+    </div>
+
+    {result && <section className="research-output">
+      <div className="research-section-title"><strong>Backtest v2</strong><span>{result.manifest?.strategy_id}</span></div>
+      <div className="compact-metrics">
+        <Metric label="Trades" value={result.stats.trades} />
+        <Metric label="Win rate" value={formatPct(result.stats.win_rate * 100)} />
+        <Metric label="Net P/L" value={formatMoney(result.stats.total_pnl)} tone={result.stats.total_pnl >= 0 ? 'up' : 'down'} />
+        <Metric label="Avg P/L" value={formatMoney(result.stats.average_pnl)} />
+        <Metric label="Profit factor" value={result.stats.profit_factor?.toFixed(2)} />
+        <Metric label="Max DD" value={formatMoney(result.stats.max_drawdown)} />
+        <Metric label="Modeled costs" value={formatMoney(result.stats.total_costs)} />
+      </div>
+      {equityOption && <div className="research-chart"><Chart option={equityOption} viewKey={`research-backtest-${result.request_fingerprint}`} /></div>}
+      <div className="research-table-wrap"><table className="research-table"><thead><tr><th>Entry</th><th>Exit</th><th>Reason</th><th>Gross</th><th>Costs</th><th>Net</th><th>Risk</th><th></th></tr></thead><tbody>
+        {result.trades.slice(-30).reverse().map((trade, index) => <tr key={`${trade.entry_date}-${trade.exit_date}-${index}`}><td>{trade.entry_date}</td><td>{trade.exit_date}</td><td>{trade.exit_reason}</td><td>{formatMoney(trade.gross_pnl)}</td><td>{formatMoney(trade.total_costs)}</td><td className={trade.pnl >= 0 ? 'up' : 'down'}>{formatMoney(trade.pnl)}</td><td>{formatMoney(trade.risk_basis)}</td><td><button onClick={() => explainTrade(trade)}>Explain</button></td></tr>)}
+      </tbody></table></div>
+    </section>}
+
+    {attribution && <section className="research-output">
+      <div className="research-section-title"><strong>P/L Attribution</strong><span>Residual stays explicit</span></div>
+      <div className="compact-metrics">
+        <Metric label="Realized" value={formatMoney(attribution.realized_pnl)} />
+        <Metric label="Delta" value={formatMoney(attribution.delta_effect)} />
+        <Metric label="Gamma" value={formatMoney(attribution.gamma_effect)} />
+        <Metric label="Theta" value={formatMoney(attribution.theta_effect)} />
+        <Metric label="Vega" value={formatMoney(attribution.vega_effect)} />
+        <Metric label="Residual" value={formatMoney(attribution.residual)} />
+      </div>
+    </section>}
+
+    {regime && <section className="research-output">
+      <div className="research-section-title"><strong>Regime scan</strong><span>{regime.total_trades} trades</span></div>
+      <div className="research-table-wrap"><table className="research-table"><thead><tr><th>Dimension</th><th>Bucket</th><th>Trades</th><th>Win rate</th><th>Avg P/L</th><th>Total P/L</th></tr></thead><tbody>
+        {regime.buckets.map((bucket) => <tr key={`${bucket.dimension}-${bucket.bucket}`}><td>{bucket.dimension}</td><td>{bucket.bucket}</td><td>{bucket.trades}</td><td>{formatPct(bucket.win_rate * 100)}</td><td>{formatMoney(bucket.average_pnl)}</td><td>{formatMoney(bucket.total_pnl)}</td></tr>)}
+      </tbody></table></div>
+    </section>}
+
+    {walkForward && <section className="research-output">
+      <div className="research-section-title"><strong>Walk Forward OOS</strong><span>{walkForward.folds.length} folds</span></div>
+      <div className="compact-metrics">
+        <Metric label="OOS trades" value={walkForward.out_of_sample_stats.trades} />
+        <Metric label="OOS net P/L" value={formatMoney(walkForward.out_of_sample_stats.total_pnl)} tone={walkForward.out_of_sample_stats.total_pnl >= 0 ? 'up' : 'down'} />
+        <Metric label="OOS avg P/L" value={formatMoney(walkForward.out_of_sample_stats.average_pnl)} />
+        <Metric label="OOS PF" value={walkForward.out_of_sample_stats.profit_factor?.toFixed(2)} />
+        <Metric label="Profitable folds" value={formatPct(walkForward.profitable_oos_folds_pct)} />
+        <Metric label="OOS / train avg" value={walkForward.oos_to_selected_train_average_pnl_ratio?.toFixed(2)} />
+      </div>
+      <div className="research-table-wrap"><table className="research-table"><thead><tr><th>Fold</th><th>Train</th><th>Test</th><th>Strategy</th><th>Train avg</th><th>OOS avg</th><th>OOS P/L</th></tr></thead><tbody>
+        {walkForward.folds.map((fold) => <tr key={fold.fold}><td>{fold.fold}</td><td>{fold.train_start} → {fold.train_end}</td><td>{fold.test_start} → {fold.test_end}</td><td className="mono">{fold.selected_strategy_id}</td><td>{formatMoney(fold.train_stats.average_pnl)}</td><td>{formatMoney(fold.test_stats.average_pnl)}</td><td>{formatMoney(fold.test_stats.total_pnl)}</td></tr>)}
+      </tbody></table></div>
+    </section>}
+
+    {portfolio && <section className="research-output">
+      <div className="research-section-title"><strong>Portfolio capital engine</strong><span>defined-risk admission</span></div>
+      <div className="compact-metrics">
+        <Metric label="Ending capital" value={formatMoney(portfolio.ending_capital)} />
+        <Metric label="Net P/L" value={formatMoney(portfolio.net_pnl)} tone={portfolio.net_pnl >= 0 ? 'up' : 'down'} />
+        <Metric label="Return" value={formatPct(portfolio.return_pct)} />
+        <Metric label="Accepted" value={portfolio.accepted_trades} />
+        <Metric label="Rejected" value={portfolio.rejected_trades} />
+        <Metric label="Peak open risk" value={formatPct(portfolio.peak_open_risk_pct_of_equity)} />
+        <Metric label="Realized max DD" value={formatPct(portfolio.max_realized_drawdown_pct)} />
+        <Metric label="Modeled costs" value={formatMoney(portfolio.total_modeled_costs)} />
+      </div>
+      {portfolioOption && <div className="research-chart"><Chart option={portfolioOption} viewKey="research-portfolio" /></div>}
+      <div className="research-reasons">{Object.entries(portfolio.rejection_reasons || {}).map(([reason, count]) => <span key={reason}>{reason}: {count}</span>)}</div>
+    </section>}
+  </div>
+}
