@@ -95,7 +95,10 @@ pub fn analyze_stability(
         request.min_trades
     );
 
-    let values: Vec<f64> = eligible_stats.iter().map(|stats| stats.average_pnl).collect();
+    let values: Vec<f64> = eligible_stats
+        .iter()
+        .map(|stats| stats.average_pnl)
+        .collect();
     let mean_average_pnl = values.iter().sum::<f64>() / values.len() as f64;
     let average_pnl_stddev = {
         let variance = values

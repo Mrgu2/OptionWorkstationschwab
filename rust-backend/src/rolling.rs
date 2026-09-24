@@ -2,9 +2,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::{
-    backtest::{
-        BacktestRequest, execution_cost, select_expiration, select_legs, validate_request,
-    },
+    backtest::{BacktestRequest, execution_cost, select_expiration, select_legs, validate_request},
     manifest::freeze_manifest,
     replay::ReplayStore,
     strategy::{StrategyLegInput, analyze_strategy},
@@ -132,13 +130,7 @@ pub fn run_rolling_backtest(
             .as_ref()
             .is_none_or(|start| date >= start)
     });
-    dates.retain(|date| {
-        request
-            .base
-            .end_date
-            .as_ref()
-            .is_none_or(|end| date <= end)
-    });
+    dates.retain(|date| request.base.end_date.as_ref().is_none_or(|end| date <= end));
 
     let mut campaigns = Vec::new();
     let mut skipped = Vec::new();
@@ -170,7 +162,9 @@ pub fn run_rolling_backtest(
         let initial_legs = match select_legs(&entry_chain, &request.base.legs) {
             Ok(value) => value,
             Err(error) => {
-                skipped.push(format!("{entry_date}: initial leg selection failed: {error}"));
+                skipped.push(format!(
+                    "{entry_date}: initial leg selection failed: {error}"
+                ));
                 continue;
             }
         };
@@ -222,11 +216,10 @@ pub fn run_rolling_backtest(
                 Ok(value) => value,
                 Err(_) => continue,
             };
-            let analysis =
-                match analyze_strategy(&chain, &current_legs, request.base.quantity) {
-                    Ok(value) => value,
-                    Err(_) => continue,
-                };
+            let analysis = match analyze_strategy(&chain, &current_legs, request.base.quantity) {
+                Ok(value) => value,
+                Err(_) => continue,
+            };
             let current_close_cost =
                 execution_cost(&current_legs, request.base.quantity, &request.base.costs);
             let hypothetical_gross = gross_cash_flow + analysis.liquidation_value;
@@ -264,8 +257,8 @@ pub fn run_rolling_backtest(
                 break;
             }
 
-            let can_roll = chain.dte <= request.roll_dte_lte
-                && rolls.len() < request.max_rolls as usize;
+            let can_roll =
+                chain.dte <= request.roll_dte_lte && rolls.len() < request.max_rolls as usize;
             if can_roll {
                 let next_expiration =
                     select_expiration(store, &symbol, exit_date, request.roll_target_dte);
@@ -310,8 +303,7 @@ pub fn run_rolling_backtest(
                         added_costs: current_close_cost + next_open_cost,
                     });
 
-                    gross_cash_flow +=
-                        analysis.liquidation_value + next_analysis.entry_cash_flow;
+                    gross_cash_flow += analysis.liquidation_value + next_analysis.entry_cash_flow;
                     close_costs += current_close_cost;
                     open_costs += next_open_cost;
                     campaign_risk_basis = campaign_risk_basis.max(next_risk);
@@ -430,8 +422,14 @@ fn summarize(campaigns: &[RollingCampaign]) -> RollingStats {
             total_rolls: 0,
         };
     }
-    let wins = campaigns.iter().filter(|campaign| campaign.pnl > 0.0).count();
-    let losses = campaigns.iter().filter(|campaign| campaign.pnl < 0.0).count();
+    let wins = campaigns
+        .iter()
+        .filter(|campaign| campaign.pnl > 0.0)
+        .count();
+    let losses = campaigns
+        .iter()
+        .filter(|campaign| campaign.pnl < 0.0)
+        .count();
     let total_pnl = campaigns.iter().map(|campaign| campaign.pnl).sum::<f64>();
     let total_costs = campaigns
         .iter()
