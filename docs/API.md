@@ -174,6 +174,26 @@ average P/L and the selected strategies' training average P/L.
 Test windows are required to be non-overlapping. Trades are constrained to the
 active fold window so an exit cannot consume prices from a later fold.
 
+### Portfolio capital engine
+
+`POST /api/research/portfolio`
+
+Runs multiple backtest strategy definitions through one chronological capital
+allocator. Each candidate trade is admitted only when it satisfies the
+configured maximum open positions, per-trade risk cap, and aggregate open-risk
+cap at that moment.
+
+Defined-risk positions use the strategy max-loss estimate plus modeled execution
+costs as capital at risk. By default, positions without a finite max-loss
+estimate are rejected.
+
+The response includes accepted and rejected trades, rejection reasons, ending
+capital, realized return, peak open risk, maximum realized drawdown, modeled
+costs, per-strategy P/L contribution, and an equity curve.
+
+Portfolio v1 marks equity when positions exit. It therefore reports realized
+drawdown and can understate intratrade mark-to-market stress.
+
 ### Strategy regime scan
 
 `POST /api/research/regime-scan`
@@ -202,3 +222,15 @@ Walk-forward validation reduces in-sample selection bias but does not eliminate
 researcher degrees of freedom. Candidate grids, thresholds, universes, and
 selection metrics should be declared before inspecting OOS results, and a final
 untouched holdout set remains advisable for consequential research claims.
+
+
+## Research Lab UI
+
+The workstation layout switch includes a Research view. It exposes the strategy
+manifest, contract-selection rules, execution costs, deterministic exits,
+backtest results, regime slices, walk-forward candidate grids, portfolio
+constraints, and one-click P/L attribution for historical trades.
+
+The UI is a client of the same local research APIs. Results retain the strategy
+ID and engine assumptions so a visual experiment can be reproduced through the
+API.
