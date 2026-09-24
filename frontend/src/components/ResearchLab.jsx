@@ -45,6 +45,8 @@ export default function ResearchLab({ catalog, defaultSymbol, pricingMode, deale
   const [trainSessions, setTrainSessions] = useState(60)
   const [testSessions, setTestSessions] = useState(20)
   const [anchored, setAnchored] = useState(true)
+  const [bootstrapIterations, setBootstrapIterations] = useState(2000)
+  const [inferenceAlpha, setInferenceAlpha] = useState(0.05)
   const [initialCapital, setInitialCapital] = useState(100000)
   const [maxRiskPerTrade, setMaxRiskPerTrade] = useState(5)
   const [maxTotalRisk, setMaxTotalRisk] = useState(25)
@@ -61,6 +63,7 @@ export default function ResearchLab({ catalog, defaultSymbol, pricingMode, deale
   const [regime, setRegime] = useState(null)
   const [walkForward, setWalkForward] = useState(null)
   const [stability, setStability] = useState(null)
+  const [inference, setInference] = useState(null)
   const [portfolio, setPortfolio] = useState(null)
   const [rolling, setRolling] = useState(null)
   const [attribution, setAttribution] = useState(null)
@@ -182,6 +185,20 @@ export default function ResearchLab({ catalog, defaultSymbol, pricingMode, deale
     if (data) setStability(data)
   }
 
+  const runInference = async () => {
+    if (!candidates.length) {
+      setError('Candidate grid does not match the current number of legs')
+      return
+    }
+    const data = await run('Running bootstrap inference', () => apiJson('/api/research/inference', 'POST', {
+      candidates,
+      bootstrap_iterations: numberValue(bootstrapIterations, 2000),
+      alpha: numberValue(inferenceAlpha, 0.05),
+      min_trades: 10,
+    }))
+    if (data) setInference(data)
+  }
+
   const sealHoldout = async () => {
     const payload = {
       strategy: clone(request),
@@ -229,6 +246,7 @@ export default function ResearchLab({ catalog, defaultSymbol, pricingMode, deale
       regime,
       walk_forward: walkForward,
       parameter_stability: stability,
+      inference,
       portfolio,
       rolling,
       holdout_plan: holdoutPlan,
@@ -363,10 +381,13 @@ export default function ResearchLab({ catalog, defaultSymbol, pricingMode, deale
           <label>Train sessions<input type="number" min="10" value={trainSessions} onChange={(event) => setTrainSessions(event.target.value)} /></label>
           <label>Test sessions<input type="number" min="1" value={testSessions} onChange={(event) => setTestSessions(event.target.value)} /></label>
           <label className="research-checkbox"><input type="checkbox" checked={anchored} onChange={(event) => setAnchored(event.target.checked)} />Anchored training</label>
+          <label>Bootstrap iterations<input type="number" min="200" max="20000" step="100" value={bootstrapIterations} onChange={(event) => setBootstrapIterations(event.target.value)} /></label>
+          <label>Inference α<input type="number" min="0.001" max="0.49" step="0.01" value={inferenceAlpha} onChange={(event) => setInferenceAlpha(event.target.value)} /></label>
         </div>
         <div className="research-actions">
           <button className="primary" onClick={runWalkForward} disabled={Boolean(status)}>Run walk forward</button>
           <button onClick={runStability} disabled={Boolean(status)}>Parameter stability</button>
+          <button onClick={runInference} disabled={Boolean(status)}>Bootstrap inference</button>
         </div>
 
         <div className="research-section-title portfolio-title"><strong>Final untouched holdout</strong><span>seal first, reveal once</span></div>
@@ -468,6 +489,19 @@ export default function ResearchLab({ catalog, defaultSymbol, pricingMode, deale
       </div>
       <div className="research-table-wrap"><table className="research-table"><thead><tr><th>Strategy</th><th>Trades</th><th>Avg P/L</th><th>vs Base</th><th>Win rate</th><th>PF</th><th>Max DD</th></tr></thead><tbody>
         {stability.candidates.map((candidate) => <tr key={candidate.strategy_id}><td className="mono">{candidate.strategy_id}</td><td>{candidate.trades}</td><td>{formatMoney(candidate.average_pnl)}</td><td>{candidate.average_pnl_vs_base?.toFixed(2) ?? '--'}</td><td>{formatPct(candidate.win_rate * 100)}</td><td>{candidate.profit_factor?.toFixed(2) ?? '--'}</td><td>{formatMoney(candidate.max_drawdown)}</td></tr>)}
+      </tbody></table></div>
+    </section>}
+
+    {inference && <section className="research-output">
+      <div className="research-section-title"><strong>Bootstrap Inference</strong><span>{inference.eligible_candidates}/{inference.tested_candidates} eligible</span></div>
+      <div className="compact-metrics">
+        <Metric label="α" value={inference.alpha?.toFixed(3)} />
+        <Metric label="Iterations" value={inference.bootstrap_iterations} />
+        <Metric label="Holm discoveries" value={inference.holm_discoveries} />
+        <Metric label="BH FDR discoveries" value={inference.bh_fdr_discoveries} />
+      </div>
+      <div className="research-table-wrap"><table className="research-table"><thead><tr><th>Strategy</th><th>Trades</th><th>Avg P/L</th><th>Bootstrap CI</th><th>Raw p</th><th>Holm p</th><th>BH FDR p</th></tr></thead><tbody>
+        {inference.candidates.map((candidate) => <tr key={candidate.strategy_id}><td className="mono">{candidate.strategy_id}</td><td>{candidate.trades}</td><td>{formatMoney(candidate.average_pnl)}</td><td>{candidate.bootstrap_ci_lower == null ? '--' : `${formatMoney(candidate.bootstrap_ci_lower)} → ${formatMoney(candidate.bootstrap_ci_upper)}`}</td><td>{candidate.raw_one_sided_p?.toFixed(4) ?? '--'}</td><td className={candidate.passes_holm ? 'up' : ''}>{candidate.holm_adjusted_p?.toFixed(4) ?? '--'}</td><td className={candidate.passes_bh_fdr ? 'up' : ''}>{candidate.bh_fdr_adjusted_p?.toFixed(4) ?? '--'}</td></tr>)}
       </tbody></table></div>
     </section>}
 
