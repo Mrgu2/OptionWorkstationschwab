@@ -170,8 +170,8 @@ pub fn run_portfolio(
 
     let mut equity = request.initial_capital;
     let mut peak_equity = equity;
-    let mut max_realized_drawdown = 0.0;
-    let mut max_realized_drawdown_pct = 0.0;
+    let mut max_realized_drawdown: f64 = 0.0;
+    let mut max_realized_drawdown_pct: f64 = 0.0;
     let mut open: HashMap<usize, OpenPosition> = HashMap::new();
     let mut accepted = vec![false; candidates.len()];
     let mut records: Vec<Option<PortfolioTrade>> = vec![None; candidates.len()];
@@ -179,8 +179,8 @@ pub fn run_portfolio(
     let mut strategy_contributions = BTreeMap::new();
     let mut equity_curve = Vec::new();
     let mut max_open_positions_observed = 0usize;
-    let mut peak_open_risk = 0.0;
-    let mut peak_open_risk_pct_of_equity = 0.0;
+    let mut peak_open_risk: f64 = 0.0;
+    let mut peak_open_risk_pct_of_equity: f64 = 0.0;
     let mut total_modeled_costs = 0.0;
 
     for event in events {
@@ -313,8 +313,6 @@ fn exit_timestamp(trade: &BacktestTrade) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn timestamps_sort_iso_dates_and_minutes() {
         let mut values = [
