@@ -370,3 +370,7 @@ tr.focused { background: #18272e; }
   .research-form-grid { grid-template-columns: repeat(2, minmax(100px, 1fr)); }
   .research-output .compact-metrics { grid-template-columns: repeat(3, 1fr); }
 }
+
+.holdout-seal { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 10px 0; padding: 7px 8px; border: 1px solid #66592e; border-radius: 3px; background: #1c1a10; }
+.holdout-seal span { color: #c9b86c; font: 9px ui-monospace, SFMono-Regular, Menlo, monospace; }
+.holdout-result { border-color: #66592e; }
