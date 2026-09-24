@@ -385,13 +385,17 @@ fn build_mtm_curve(
     for date in dates {
         let realized_pnl = accepted
             .iter()
-            .filter(|record| record.trade.exit_date <= date)
+            .filter(|record| record.trade.exit_date.as_str() <= date.as_str())
             .map(|record| record.trade.pnl)
             .sum::<f64>();
 
-        let active: Vec<&&PortfolioTrade> = accepted
+        let active: Vec<&PortfolioTrade> = accepted
             .iter()
-            .filter(|record| record.trade.entry_date <= date && record.trade.exit_date > date)
+            .copied()
+            .filter(|record| {
+                record.trade.entry_date.as_str() <= date.as_str()
+                    && record.trade.exit_date.as_str() > date.as_str()
+            })
             .collect();
 
         let mut unrealized_pnl = 0.0;
