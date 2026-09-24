@@ -1,7 +1,11 @@
 mod analytics;
+mod attribution;
 mod audit;
+mod backtest;
+mod journal;
 mod live;
 mod models;
+mod regime;
 mod replay;
 mod strategy;
 mod volatility;
@@ -28,9 +32,13 @@ use tower_http::{
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use crate::{
+    attribution::{AttributionRequest, attribute},
     audit::{AuditCaptureRequest, AuditStore},
+    backtest::{BacktestRequest, run_backtest},
+    journal::build as build_journal,
     live::{LiveManager, option_retry_after_ms},
     models::{CredentialRequest, LiveSessionRequest, OAuthStartRequest},
+    regime::{RegimeScanRequest, scan as scan_regimes},
     replay::{ReplaySnapshotParams, ReplayStore},
     strategy::{StrategyRequest, analyze_strategy},
 };
@@ -156,6 +164,13 @@ struct AuditListQuery {
     limit: usize,
 }
 
+#[derive(Deserialize)]
+struct JournalReplayQuery {
+    symbol: Option<String>,
+    #[serde(default = "default_journal_limit")]
+    limit: usize,
+}
+
 fn default_pricing_mode() -> String {
     "micro".into()
 }
@@ -167,6 +182,9 @@ fn default_max_dte() -> i64 {
 }
 fn default_audit_limit() -> usize {
     30
+}
+fn default_journal_limit() -> usize {
+    200
 }
 
 fn validate_minute(value: &str) -> Result<(), ApiError> {
@@ -428,6 +446,56 @@ async fn strategy_analyze(
         .map_err(ApiError::bad_request)
 }
 
+async fn backtest_run(
+    State(state): State<AppState>,
+    Json(request): Json<BacktestRequest>,
+) -> Result<Json<Value>, ApiError> {
+    validate_minute(&request.entry_minute)?;
+    validate_minute(&request.exit_minute)?;
+    run_backtest(&state.replay, &request)
+        .and_then(|report| serde_json::to_value(report).map_err(anyhow::Error::from))
+        .map(Json)
+        .map_err(ApiError::bad_request)
+}
+
+async fn attribution_run(
+    State(state): State<AppState>,
+    Json(request): Json<AttributionRequest>,
+) -> Result<Json<Value>, ApiError> {
+    validate_minute(&request.entry_minute)?;
+    validate_minute(&request.exit_minute)?;
+    attribute(&state.replay, &request)
+        .and_then(|report| serde_json::to_value(report).map_err(anyhow::Error::from))
+        .map(Json)
+        .map_err(ApiError::bad_request)
+}
+
+async fn regime_scan(
+    State(state): State<AppState>,
+    Json(request): Json<RegimeScanRequest>,
+) -> Result<Json<Value>, ApiError> {
+    validate_minute(&request.backtest.entry_minute)?;
+    validate_minute(&request.backtest.exit_minute)?;
+    scan_regimes(&state.replay, &request)
+        .and_then(|report| serde_json::to_value(report).map_err(anyhow::Error::from))
+        .map(Json)
+        .map_err(ApiError::bad_request)
+}
+
+async fn journal_replay(
+    State(state): State<AppState>,
+    Query(query): Query<JournalReplayQuery>,
+) -> Result<Json<Value>, ApiError> {
+    state
+        .audit
+        .recent_records(query.limit)
+        .await
+        .and_then(|records| serde_json::to_value(build_journal(records, query.symbol.as_deref())).map_err(anyhow::Error::from))
+        .map(Json)
+        .map_err(ApiError::bad_request)
+}
+
+
 async fn audit_records(
     State(state): State<AppState>,
     Query(query): Query<AuditListQuery>,
@@ -542,6 +610,10 @@ fn app(state: AppState, frontend_dist: PathBuf) -> Router {
         .route("/api/live/snapshot", get(live_snapshot))
         .route("/api/live/volatility-context", get(live_volatility_context))
         .route("/api/strategy/analyze", post(strategy_analyze))
+        .route("/api/research/backtest", post(backtest_run))
+        .route("/api/research/attribution", post(attribution_run))
+        .route("/api/research/regime-scan", post(regime_scan))
+        .route("/api/research/journal", get(journal_replay))
         .route(
             "/api/audit/records",
             get(audit_records).post(append_audit_record),
