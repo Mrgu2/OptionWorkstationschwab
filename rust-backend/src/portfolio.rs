@@ -243,9 +243,10 @@ pub fn run_portfolio(
                         peak_open_risk_pct_of_equity.max(open_risk / equity);
                 }
             }
-        } else if accepted[event.candidate_index] {
-            if let Some(position) = open.remove(&event.candidate_index) {
-                equity += candidate.trade.pnl;
+        } else if accepted[event.candidate_index]
+            && let Some(position) = open.remove(&event.candidate_index)
+        {
+            equity += candidate.trade.pnl;
                 total_modeled_costs += candidate.trade.total_costs;
                 *strategy_contributions
                     .entry(position.strategy_id)
@@ -259,14 +260,13 @@ pub fn run_portfolio(
                         max_realized_drawdown_pct.max(drawdown / peak_equity);
                 }
                 let open_risk = open.values().map(|position| position.risk).sum::<f64>();
-                equity_curve.push(PortfolioEquityPoint {
-                    timestamp: event.timestamp,
-                    equity,
-                    realized_pnl: equity - request.initial_capital,
-                    open_positions: open.len(),
-                    open_risk,
-                });
-            }
+            equity_curve.push(PortfolioEquityPoint {
+                timestamp: event.timestamp,
+                equity,
+                realized_pnl: equity - request.initial_capital,
+                open_positions: open.len(),
+                open_risk,
+            });
         }
     }
 
