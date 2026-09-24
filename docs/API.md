@@ -118,14 +118,30 @@ The request supports:
 - symbol and optional start/end dates;
 - entry and exit minute;
 - target DTE;
-- hold period in available trading sessions;
+- maximum hold period in available trading sessions;
 - quantity;
-- one to eight call/put legs with side, target delta, and ratio.
+- one to eight call/put legs with side, target delta, and ratio;
+- explicit commission and additional slippage per contract per execution;
+- optional take-profit, stop-loss, and DTE exit rules.
 
 The response includes every trade, skipped sessions, cumulative P/L, win rate,
-profit factor, median P/L, and maximum drawdown. The response also records the
-entry ATM IV, net GEX, gamma-flip relationship, RR25, BF25, and quote quality so
-later regime analysis can be reproduced.
+profit factor, median P/L, maximum drawdown, and total modeled execution costs.
+Each trade exposes gross P/L, net P/L, entry/exit costs, holding sessions, risk
+basis, and exit reason. The response also records the entry ATM IV, net GEX,
+gamma-flip relationship, RR25, BF25, and quote quality so later regime analysis
+can be reproduced.
+
+### Strategy manifest
+
+`POST /api/research/manifest`
+
+Freezes a backtest strategy definition into a deterministic manifest and
+`strategy_id`. Evaluation start/end dates are deliberately excluded from the
+strategy identity. Changing a strategy parameter such as target delta, DTE,
+quantity, exit rules, or cost assumptions changes the ID.
+
+Backtest responses embed the same manifest so train and test runs can prove
+which strategy definition was evaluated.
 
 ### P/L attribution
 
@@ -136,6 +152,27 @@ gamma, theta, and vega. Vanna and charm are returned as diagnostics. They are no
 added to explained P/L in v1 because doing so naively can double-count the same
 spot/volatility/time interaction. Any unexplained amount remains visible as a
 residual.
+
+### Walk-forward validation
+
+`POST /api/research/walk-forward`
+
+Evaluates one to fifty candidate strategy definitions through sequential
+training and out-of-sample test windows. Candidate ranking happens only inside
+the training window. The selected strategy manifest is frozen before the test
+window is evaluated.
+
+The request supports anchored or rolling training windows, configurable train
+and test session counts, non-overlapping step sizes, a minimum training-trade
+requirement, and selection by average P/L, profit factor, or total P/L.
+
+The response returns every fold, all candidate training scores, the selected
+strategy ID, train and test statistics, aggregate out-of-sample statistics,
+selection frequency, profitable OOS fold percentage, and the ratio between OOS
+average P/L and the selected strategies' training average P/L.
+
+Test windows are required to be non-overlapping. Trades are constrained to the
+active fold window so an exit cannot consume prices from a later fold.
 
 ### Strategy regime scan
 
@@ -155,8 +192,13 @@ decisions are never reconstructed as though they had been recorded.
 
 ## Research limitations
 
-Backtest v1 intentionally omits commissions, taxes, early assignment, dividends,
-market impact, partial fills, and broker margin rules. The hold period is
-session-based and the v1 contract selector targets delta. Any performance claim
-must therefore state these assumptions and should use holdout or walk-forward
-validation before treating a historical pattern as persistent edge.
+Backtest v2 models user-specified per-contract commissions and additional
+slippage while executable option prices still use the adverse NBBO side. It
+continues to omit taxes, early assignment, dividends, partial fills, broker
+margin rules, and market impact beyond the configured slippage assumption. The
+hold period is session-based and the contract selector targets delta.
+
+Walk-forward validation reduces in-sample selection bias but does not eliminate
+researcher degrees of freedom. Candidate grids, thresholds, universes, and
+selection metrics should be declared before inspecting OOS results, and a final
+untouched holdout set remains advisable for consequential research claims.
