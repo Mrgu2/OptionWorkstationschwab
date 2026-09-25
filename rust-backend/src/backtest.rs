@@ -358,6 +358,11 @@ pub fn run_backtest(
             "exit liquidation uses the opposite executable side".into(),
             "configured commission and additional slippage are charged on entry and exit".into(),
             "take-profit and stop-loss thresholds use net P/L after configured execution costs".into(),
+            format!(
+                "target expiration must be within {} calendar days of the requested {} DTE",
+                dte_selection_tolerance(request.target_dte),
+                request.target_dte
+            ),
             "hold period is measured in available trading sessions".into(),
             "early assignment, dividends, taxes, partial fills, and market impact beyond configured slippage are not modeled".into(),
         ],
@@ -509,6 +514,7 @@ pub(crate) fn select_expiration(
     target_dte: i64,
 ) -> Option<String> {
     let day = NaiveDate::parse_from_str(trading_date, "%Y-%m-%d").ok()?;
+    let tolerance = dte_selection_tolerance(target_dte);
     store
         .expirations(symbol, trading_date)
         .into_iter()
@@ -518,7 +524,17 @@ pub(crate) fn select_expiration(
             (dte >= 0).then_some((expiry, (dte - target_dte).abs()))
         })
         .min_by_key(|(_, distance)| *distance)
-        .map(|(expiry, _)| expiry)
+        .and_then(|(expiry, distance)| (distance <= tolerance).then_some(expiry))
+}
+
+fn dte_selection_tolerance(target_dte: i64) -> i64 {
+    match target_dte {
+        0 => 0,
+        1..=3 => 1,
+        4..=14 => 3,
+        15..=45 => 7,
+        _ => 10,
+    }
 }
 
 pub(crate) fn select_legs(
@@ -707,6 +723,15 @@ mod tests {
             choose_exit_reason(0.0, 100.0, 2, 2, &request).as_deref(),
             Some("dte_exit")
         );
+    }
+
+    #[test]
+    fn dte_selection_tolerance_prevents_large_expiry_substitution() {
+        assert_eq!(dte_selection_tolerance(0), 0);
+        assert_eq!(dte_selection_tolerance(1), 1);
+        assert_eq!(dte_selection_tolerance(14), 3);
+        assert_eq!(dte_selection_tolerance(30), 7);
+        assert_eq!(dte_selection_tolerance(90), 10);
     }
 
     #[test]
