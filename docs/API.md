@@ -64,8 +64,11 @@ The response is the authoritative replay unit:
 ```
 
 The `chain`, `surface`, and `volatility` objects are computed from the same
-symbol, date, minute and expiration request. Clients should display the
-top-level `snapshot_id`, `as_of`, and `model_version` alongside derived panels.
+symbol, date, minute, pricing mode, and dealer-model request. The replay envelope
+ID also binds the requested surface horizon and model configuration, so changing
+`max_dte` or the pricing inputs creates a different authoritative snapshot ID.
+Clients should display the top-level `snapshot_id`, `as_of`, and
+`model_version` alongside derived panels.
 The older `/api/chain`, `/api/surface`, and `/api/volatility-context` routes
 remain available for compatibility.
 
@@ -130,7 +133,10 @@ The request supports:
 
 The response includes every trade, skipped sessions, cumulative P/L, win rate,
 profit factor, median P/L, maximum drawdown, total modeled execution costs, and
-entry-session completion coverage. Attempted, completed, and skipped entry
+entry-session completion coverage. `return_on_debit` is reported only for net
+debit entries. Credit entries leave that field unavailable instead of dividing
+P/L by commissions. Percentage-of-risk exits require a finite max-loss estimate;
+unbounded positions are skipped when such exits are configured. Attempted, completed, and skipped entry
 counts are reported explicitly so missing historical quotes cannot disappear
 from the performance summary.
 Each trade exposes gross P/L, net P/L, entry/exit costs, holding sessions, risk
