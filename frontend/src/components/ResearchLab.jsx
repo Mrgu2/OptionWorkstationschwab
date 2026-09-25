@@ -447,7 +447,7 @@ export default function ResearchLab({ catalog, defaultSymbol, pricingMode, deale
 
         <div className="research-section-title portfolio-title"><strong>Final untouched holdout</strong><span>seal first, reveal once</span></div>
         <div className="research-form-grid">
-          <label>Holdout sessions<input type="number" min="5" value={holdoutSessions} onChange={(event) => setHoldoutSessions(event.target.value)} /></label>
+          <label>Holdout sessions<input type="number" min={Math.max(5, numberValue(holdDays, 5) + 1)} value={holdoutSessions} onChange={(event) => setHoldoutSessions(event.target.value)} /></label>
         </div>
         <div className="research-actions">
           <button onClick={sealHoldout} disabled={Boolean(status)}>Seal holdout</button>
