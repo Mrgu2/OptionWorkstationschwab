@@ -64,6 +64,76 @@ impl AuditStore {
     pub async fn append(&self, request: AuditCaptureRequest) -> anyhow::Result<AuditRecord> {
         validate_request(&request)?;
         let _guard = self.lock.lock().await;
+        self.append_unlocked(request)
+    }
+
+    pub async fn append_holdout_seal_once(
+        &self,
+        request: AuditCaptureRequest,
+        commitment: &str,
+    ) -> anyhow::Result<AuditRecord> {
+        validate_request(&request)?;
+        anyhow::ensure!(request.kind == "holdout_seal", "expected holdout_seal audit kind");
+        let _guard = self.lock.lock().await;
+        let records = read_records(&self.path)?;
+        let opened = opened_holdout_commitments(&records);
+        let active_for_symbol = records.iter().find(|record| {
+            record.kind == "holdout_seal"
+                && record.symbol.eq_ignore_ascii_case(&request.symbol)
+                && record
+                    .payload
+                    .get("commitment")
+                    .and_then(Value::as_str)
+                    .is_some_and(|value| !opened.contains(value))
+        });
+        if let Some(record) = active_for_symbol {
+            let existing = record
+                .payload
+                .get("commitment")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown");
+            anyhow::bail!(
+                "an untouched holdout is already sealed for {} ({:.12}…); open it before sealing another one",
+                request.symbol.to_uppercase(),
+                existing
+            );
+        }
+        anyhow::ensure!(
+            request
+                .payload
+                .get("commitment")
+                .and_then(Value::as_str)
+                == Some(commitment),
+            "holdout seal commitment payload mismatch"
+        );
+        self.append_unlocked(request)
+    }
+
+    pub async fn append_holdout_open_once(
+        &self,
+        request: AuditCaptureRequest,
+        commitment: &str,
+    ) -> anyhow::Result<AuditRecord> {
+        validate_request(&request)?;
+        anyhow::ensure!(request.kind == "holdout_open", "expected holdout_open audit kind");
+        let _guard = self.lock.lock().await;
+        let records = read_records(&self.path)?;
+        anyhow::ensure!(
+            !opened_holdout_commitments(&records).contains(commitment),
+            "this holdout commitment has already been opened"
+        );
+        anyhow::ensure!(
+            request
+                .payload
+                .get("commitment")
+                .and_then(Value::as_str)
+                == Some(commitment),
+            "holdout open commitment payload mismatch"
+        );
+        self.append_unlocked(request)
+    }
+
+    fn append_unlocked(&self, request: AuditCaptureRequest) -> anyhow::Result<AuditRecord> {
         if let Some(parent) = self.path.parent() {
             fs::create_dir_all(parent).context("create audit directory")?;
         }
@@ -157,17 +227,7 @@ impl AuditStore {
     ) -> anyhow::Result<Vec<Value>> {
         let _guard = self.lock.lock().await;
         let records = read_records(&self.path)?;
-        let opened: std::collections::HashSet<String> = records
-            .iter()
-            .filter(|record| record.kind == "holdout_open")
-            .filter_map(|record| {
-                record
-                    .payload
-                    .get("commitment")
-                    .and_then(Value::as_str)
-                    .map(str::to_string)
-            })
-            .collect();
+        let opened = opened_holdout_commitments(&records);
 
         Ok(records
             .iter()
@@ -183,6 +243,23 @@ impl AuditStore {
             .map(|record| record.payload.clone())
             .collect())
     }
+}
+
+
+fn opened_holdout_commitments(
+    records: &[AuditRecord],
+) -> std::collections::HashSet<String> {
+    records
+        .iter()
+        .filter(|record| record.kind == "holdout_open")
+        .filter_map(|record| {
+            record
+                .payload
+                .get("commitment")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+        .collect()
 }
 
 fn read_records(path: &Path) -> anyhow::Result<Vec<AuditRecord>> {
