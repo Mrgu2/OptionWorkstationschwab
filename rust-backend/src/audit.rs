@@ -118,8 +118,9 @@ impl AuditStore {
         anyhow::ensure!(request.kind == "holdout_open", "expected holdout_open audit kind");
         let _guard = self.lock.lock().await;
         let records = read_records(&self.path)?;
+        let opened = opened_holdout_commitments(&records);
         anyhow::ensure!(
-            !opened_holdout_commitments(&records).contains(commitment),
+            !opened.contains(commitment),
             "this holdout commitment has already been opened"
         );
         anyhow::ensure!(
@@ -129,6 +130,18 @@ impl AuditStore {
                 .and_then(Value::as_str)
                 == Some(commitment),
             "holdout open commitment payload mismatch"
+        );
+        anyhow::ensure!(
+            records.iter().any(|record| {
+                record.kind == "holdout_seal"
+                    && record.symbol.eq_ignore_ascii_case(&request.symbol)
+                    && record
+                        .payload
+                        .get("commitment")
+                        .and_then(Value::as_str)
+                        == Some(commitment)
+            }),
+            "no matching sealed holdout exists in the audit ledger"
         );
         self.append_unlocked(request)
     }
@@ -465,6 +478,32 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
+        let _ = fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn holdout_open_requires_prior_seal() {
+        let path = std::env::temp_dir().join(format!(
+            "option-workstation-unsealed-open-{}.jsonl",
+            Utc::now().timestamp_nanos_opt().unwrap()
+        ));
+        let store = AuditStore::new(path.clone());
+        let result = store
+            .append_holdout_open_once(
+                AuditCaptureRequest {
+                    kind: "holdout_open".into(),
+                    mode: "system".into(),
+                    symbol: "SPY".into(),
+                    snapshot_id: None,
+                    payload: serde_json::json!({
+                        "commitment": "commit-never-sealed",
+                        "strategy_id": "strategy-1"
+                    }),
+                },
+                "commit-never-sealed",
+            )
+            .await;
+        assert!(result.is_err());
         let _ = fs::remove_file(path);
     }
 
