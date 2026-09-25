@@ -753,16 +753,21 @@ pub fn build_chain(input: ChainBuild<'_>) -> anyhow::Result<ChainSnapshot> {
     let minute = et.format("%H:%M").to_string();
     let timestamp = input.as_of.to_rfc3339();
     let snapshot_key = format!(
-        "{}|{}|{}|{}|{}|{}|{}",
+        "{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}",
         input.symbol,
         date,
         timestamp,
         input.expiration,
         input.pricing_mode,
         input.dealer_model,
-        input.source
+        input.source,
+        input.quote_interval,
+        input.oi_frequency,
+        input.risk_free_rate.to_bits(),
+        input.spot.to_bits(),
+        input.prefer_sdk_greeks
     );
-    let snapshot_id = hex::encode(Sha256::digest(snapshot_key.as_bytes()))[..16].to_string();
+    let snapshot_id = hex::encode(Sha256::digest(snapshot_key.as_bytes()))[..20].to_string();
     let contracts = rows.len();
     let net_gex = gex_ready.then(|| round(rows.iter().filter_map(|row| row.gex).sum::<f64>(), 2));
     let avg_quality = Some(round(
