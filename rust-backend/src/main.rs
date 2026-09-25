@@ -910,7 +910,8 @@ async fn main() -> anyhow::Result<()> {
         .unwrap_or_else(|_| project_root.join("frontend/dist"));
     let risk_free_rate = env::var("OPTION_WORKSTATION_RISK_FREE_RATE")
         .ok()
-        .and_then(|value| value.parse().ok())
+        .and_then(|value| value.parse::<f64>().ok())
+        .filter(|value| value.is_finite())
         .unwrap_or(0.043);
     let host = env::var("OPTION_WORKSTATION_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
     let port: u16 = env::var("OPTION_WORKSTATION_PORT")
