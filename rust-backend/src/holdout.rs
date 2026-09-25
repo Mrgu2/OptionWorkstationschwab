@@ -199,6 +199,19 @@ pub fn open_sealed_holdout(
     holdout_request.end_date = Some(sealed_plan.holdout_end.clone());
     let holdout = run_backtest(store, &holdout_request)?;
 
+    if sealed_plan.protocol_version == HOLDOUT_PROTOCOL_V2 {
+        let sealed_fingerprint = sealed_plan
+            .data_fingerprint
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("v2 holdout is missing its data fingerprint"))?;
+        let after =
+            store.data_fingerprint(&sealed_plan.symbol, &sealed_plan.holdout_start, &sealed_plan.holdout_end)?;
+        anyhow::ensure!(
+            &after == sealed_fingerprint,
+            "replay dataset changed while the holdout was being evaluated"
+        );
+    }
+
     let mut notes = vec![
         "the audit ledger is the source of truth for the resolved holdout dates, so later catalog growth does not move the sealed sample".into(),
         "opening the final holdout should be treated as a one-time research event; changing the strategy afterwards creates a new research hypothesis".into(),
