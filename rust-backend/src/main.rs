@@ -42,7 +42,9 @@ use crate::{
     attribution::{AttributionRequest, attribute},
     audit::{AuditCaptureRequest, AuditStore},
     backtest::{BacktestRequest, run_backtest, validate_request},
-    holdout::{HoldoutOpenRequest, HoldoutPlanRequest, open_holdout, plan_holdout},
+    holdout::{
+        HoldoutOpenRequest, HoldoutPlan, HoldoutPlanRequest, open_sealed_holdout, plan_holdout,
+    },
     inference::{InferenceRequest, run_inference},
     journal::build as build_journal,
     live::{LiveManager, option_retry_after_ms},
@@ -568,49 +570,49 @@ async fn holdout_open(
 ) -> Result<Json<Value>, ApiError> {
     validate_minute(&request.plan.strategy.entry_minute)?;
     validate_minute(&request.plan.strategy.exit_minute)?;
-    let plan = plan_holdout(&state.replay, &request.plan).map_err(ApiError::bad_request)?;
-    if request.commitment != plan.commitment {
-        return Err(ApiError::bad_request(
-            "holdout commitment mismatch; strategy or boundary changed after sealing",
-        ));
-    }
-    if state
-        .audit
-        .holdout_opened(&request.commitment)
-        .await
-        .map_err(ApiError::bad_request)?
-    {
-        return Err(ApiError::conflict(
-            "this holdout commitment has already been opened; create a new research hypothesis before using another final holdout",
-        ));
-    }
+
+    let symbol = state
+        .replay
+        .validate_symbol(&request.plan.strategy.symbol)
+        .map_err(ApiError::bad_request)?;
     let active_seals = state
         .audit
-        .active_holdout_seals_for_symbol(&plan.symbol)
+        .active_holdout_seals_for_symbol(&symbol)
         .await
         .map_err(ApiError::bad_request)?;
-    if !active_seals.iter().any(|seal| {
-        seal.get("commitment").and_then(Value::as_str) == Some(request.commitment.as_str())
-    }) {
-        return Err(ApiError::conflict(
-            "no matching active holdout seal exists in the audit ledger",
-        ));
-    }
+    let sealed_value = active_seals
+        .into_iter()
+        .find(|seal| {
+            seal.get("commitment").and_then(Value::as_str)
+                == Some(request.commitment.as_str())
+        })
+        .ok_or_else(|| {
+            ApiError::conflict(
+                "no matching active holdout seal exists in the audit ledger; it may already have been opened",
+            )
+        })?;
+    let sealed_plan: HoldoutPlan =
+        serde_json::from_value(sealed_value).map_err(ApiError::bad_request)?;
 
-    let report = open_holdout(&state.replay, &request).map_err(ApiError::bad_request)?;
+    let report =
+        open_sealed_holdout(&state.replay, &request, &sealed_plan).map_err(ApiError::conflict)?;
     state
         .audit
         .append_holdout_open_once(
             AuditCaptureRequest {
                 kind: "holdout_open".into(),
                 mode: "system".into(),
-                symbol: plan.symbol.clone(),
+                symbol: sealed_plan.symbol.clone(),
                 snapshot_id: None,
                 payload: serde_json::json!({
-                    "commitment": plan.commitment,
-                    "strategy_id": plan.strategy_id,
-                    "holdout_start": plan.holdout_start,
-                    "holdout_end": plan.holdout_end,
+                    "commitment": sealed_plan.commitment,
+                    "strategy_id": sealed_plan.strategy_id,
+                    "protocol_version": sealed_plan.protocol_version,
+                    "holdout_start": sealed_plan.holdout_start,
+                    "holdout_end": sealed_plan.holdout_end,
+                    "data_fingerprint": sealed_plan.data_fingerprint,
+                    "risk_free_rate": sealed_plan.risk_free_rate,
+                    "engine_contract": sealed_plan.engine_contract,
                 }),
             },
             &request.commitment,
