@@ -211,8 +211,11 @@ pub fn open_sealed_holdout(
             .data_fingerprint
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("v2 holdout is missing its data fingerprint"))?;
-        let after =
-            store.data_fingerprint(&sealed_plan.symbol, &sealed_plan.holdout_start, &sealed_plan.holdout_end)?;
+        let after = store.data_fingerprint(
+            &sealed_plan.symbol,
+            &sealed_plan.holdout_start,
+            &sealed_plan.holdout_end,
+        )?;
         anyhow::ensure!(
             &after == sealed_fingerprint,
             "replay dataset changed while the holdout was being evaluated"
@@ -380,14 +383,7 @@ mod tests {
 
     #[test]
     fn holdout_window_rejects_conflicting_outer_and_strategy_dates() {
-        assert!(
-            reconcile_boundary(
-                "start_date",
-                Some("2026-01-01"),
-                Some("2026-01-02")
-            )
-            .is_err()
-        );
+        assert!(reconcile_boundary("start_date", Some("2026-01-01"), Some("2026-01-02")).is_err());
         assert_eq!(
             reconcile_boundary("start_date", None, Some("2026-01-02")).unwrap(),
             Some("2026-01-02")

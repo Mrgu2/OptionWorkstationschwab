@@ -285,7 +285,10 @@ fn elapsed_days(
         )
         .single()
         .ok_or_else(|| anyhow::anyhow!("invalid exit timestamp"))?;
-    anyhow::ensure!(exit >= entry, "exit timestamp must not precede entry timestamp");
+    anyhow::ensure!(
+        exit >= entry,
+        "exit timestamp must not precede entry timestamp"
+    );
     Ok((exit - entry).num_seconds() as f64 / 86_400.0)
 }
 

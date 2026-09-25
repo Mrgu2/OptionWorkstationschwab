@@ -88,9 +88,12 @@ impl ReplayStore {
         let clean = self.validate_symbol(symbol)?;
         let start = NaiveDate::parse_from_str(start_date, "%Y-%m-%d")
             .context("invalid fingerprint start date")?;
-        let end =
-            NaiveDate::parse_from_str(end_date, "%Y-%m-%d").context("invalid fingerprint end date")?;
-        anyhow::ensure!(start <= end, "fingerprint start date must not exceed end date");
+        let end = NaiveDate::parse_from_str(end_date, "%Y-%m-%d")
+            .context("invalid fingerprint end date")?;
+        anyhow::ensure!(
+            start <= end,
+            "fingerprint start date must not exceed end date"
+        );
 
         let mut paths = Vec::new();
         for date in self.dates(&clean) {
@@ -915,23 +918,16 @@ mod tests {
             std::process::id(),
             chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
         ));
-        fs::create_dir_all(
-            root.join("underlying/symbol=SPY/date=2026-09-24"),
-        )
-        .unwrap();
-        fs::create_dir_all(
-            root.join("options/symbol=SPY/date=2026-09-24/expiration=2026-10-16"),
-        )
-        .unwrap();
+        fs::create_dir_all(root.join("underlying/symbol=SPY/date=2026-09-24")).unwrap();
+        fs::create_dir_all(root.join("options/symbol=SPY/date=2026-09-24/expiration=2026-10-16"))
+            .unwrap();
         fs::write(
             root.join("underlying/symbol=SPY/date=2026-09-24/ohlc.parquet"),
             b"underlying-v1",
         )
         .unwrap();
         fs::write(
-            root.join(
-                "options/symbol=SPY/date=2026-09-24/expiration=2026-10-16/quote_1m.parquet",
-            ),
+            root.join("options/symbol=SPY/date=2026-09-24/expiration=2026-10-16/quote_1m.parquet"),
             b"quotes-v1",
         )
         .unwrap();
@@ -946,9 +942,7 @@ mod tests {
             .data_fingerprint("SPY", "2026-09-24", "2026-09-24")
             .unwrap();
         fs::write(
-            root.join(
-                "options/symbol=SPY/date=2026-09-24/expiration=2026-10-16/quote_1m.parquet",
-            ),
+            root.join("options/symbol=SPY/date=2026-09-24/expiration=2026-10-16/quote_1m.parquet"),
             b"quotes-v2",
         )
         .unwrap();
