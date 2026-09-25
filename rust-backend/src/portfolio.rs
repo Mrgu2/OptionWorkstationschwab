@@ -421,7 +421,11 @@ fn build_mtm_curve(
                     &trade.pricing_mode,
                     &trade.dealer_model,
                 )
-                .and_then(|chain| analyze_strategy(&chain, &trade.legs, trade.quantity));
+                .and_then(|chain| analyze_strategy(&chain, &trade.legs, trade.quantity))
+                .and_then(|analysis| {
+                    anyhow::ensure!(analysis.executable, "mark is not executable");
+                    Ok(analysis)
+                });
             match marked {
                 Ok(analysis) => {
                     unrealized_pnl += trade.entry_cash_flow + analysis.liquidation_value
