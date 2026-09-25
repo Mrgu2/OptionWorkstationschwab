@@ -490,14 +490,8 @@ impl ReplayStore {
             pricing_mode,
             dealer_model,
         )?;
-        let history = self.matched_iv_history(
-            &clean,
-            trading_date,
-            snapshot.dte,
-            minute,
-            pricing_mode,
-            50,
-        );
+        let history =
+            self.matched_iv_history(&clean, trading_date, snapshot.dte, minute, pricing_mode, 50);
         serde_json::to_value(build_context(VolatilityInput {
             symbol: clean,
             as_of: snapshot.timestamp.clone(),
@@ -654,7 +648,14 @@ impl ReplayStore {
             return None;
         }
         let chain = self
-            .chain(symbol, trading_date, minute, &expiry, pricing_mode, "classic")
+            .chain(
+                symbol,
+                trading_date,
+                minute,
+                &expiry,
+                pricing_mode,
+                "classic",
+            )
             .ok()
             .or_else(|| {
                 allow_close_fallback
@@ -667,7 +668,7 @@ impl ReplayStore {
                             pricing_mode,
                             "classic",
                         )
-                            .ok()
+                        .ok()
                     })
                     .flatten()
             })?;
