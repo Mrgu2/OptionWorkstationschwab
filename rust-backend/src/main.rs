@@ -41,7 +41,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use crate::{
     attribution::{AttributionRequest, attribute},
     audit::{AuditCaptureRequest, AuditStore},
-    backtest::{BacktestRequest, run_backtest},
+    backtest::{BacktestRequest, run_backtest, validate_request},
     holdout::{HoldoutOpenRequest, HoldoutPlanRequest, open_holdout, plan_holdout},
     inference::{InferenceRequest, run_inference},
     journal::build as build_journal,
@@ -213,21 +213,23 @@ fn validate_minute(value: &str) -> Result<(), ApiError> {
     Ok(())
 }
 
-async fn ensure_holdout_not_sealed(
+async fn ensure_symbol_window_not_sealed(
     state: &AppState,
-    request: &BacktestRequest,
+    symbol: &str,
+    request_start: Option<&str>,
+    request_end: Option<&str>,
 ) -> Result<(), ApiError> {
     let symbol = state
         .replay
-        .validate_symbol(&request.symbol)
+        .validate_symbol(symbol)
         .map_err(ApiError::bad_request)?;
     let seals = state
         .audit
         .active_holdout_seals_for_symbol(&symbol)
         .await
         .map_err(ApiError::bad_request)?;
-    let request_start = request.start_date.as_deref().unwrap_or("");
-    let request_end = request.end_date.as_deref().unwrap_or("9999-12-31");
+    let request_start = request_start.unwrap_or("");
+    let request_end = request_end.unwrap_or("9999-12-31");
 
     for seal in seals {
         let holdout_start = seal
@@ -250,6 +252,20 @@ async fn ensure_holdout_not_sealed(
         }
     }
     Ok(())
+}
+
+async fn ensure_holdout_not_sealed(
+    state: &AppState,
+    request: &BacktestRequest,
+) -> Result<(), ApiError> {
+    validate_request(request).map_err(ApiError::bad_request)?;
+    ensure_symbol_window_not_sealed(
+        state,
+        &request.symbol,
+        request.start_date.as_deref(),
+        request.end_date.as_deref(),
+    )
+    .await
 }
 
 async fn health(State(state): State<AppState>) -> Json<Value> {
@@ -513,8 +529,7 @@ async fn backtest_run(
 }
 
 async fn strategy_manifest(Json(request): Json<BacktestRequest>) -> Result<Json<Value>, ApiError> {
-    validate_minute(&request.entry_minute)?;
-    validate_minute(&request.exit_minute)?;
+    validate_request(&request).map_err(ApiError::bad_request)?;
     freeze_manifest(&request)
         .and_then(|manifest| serde_json::to_value(manifest).map_err(anyhow::Error::from))
         .map(Json)
@@ -596,6 +611,13 @@ async fn attribution_run(
 ) -> Result<Json<Value>, ApiError> {
     validate_minute(&request.entry_minute)?;
     validate_minute(&request.exit_minute)?;
+    ensure_symbol_window_not_sealed(
+        &state,
+        &request.symbol,
+        Some(&request.entry_date),
+        Some(&request.exit_date),
+    )
+    .await?;
     attribute(&state.replay, &request)
         .and_then(|report| serde_json::to_value(report).map_err(anyhow::Error::from))
         .map(Json)
