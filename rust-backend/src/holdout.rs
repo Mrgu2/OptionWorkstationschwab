@@ -1,8 +1,9 @@
+use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::{
-    backtest::{BacktestReport, BacktestRequest, run_backtest},
+    backtest::{BacktestReport, BacktestRequest, run_backtest, validate_request},
     manifest::freeze_manifest,
     replay::ReplayStore,
 };
@@ -63,10 +64,26 @@ pub fn plan_holdout(
     store: &ReplayStore,
     request: &HoldoutPlanRequest,
 ) -> anyhow::Result<HoldoutPlan> {
+    validate_request(&request.strategy)?;
     anyhow::ensure!(
         request.holdout_sessions >= 5,
         "holdout_sessions must be at least 5"
     );
+    let start = request
+        .start_date
+        .as_deref()
+        .map(|value| NaiveDate::parse_from_str(value, "%Y-%m-%d"))
+        .transpose()
+        .map_err(|_| anyhow::anyhow!("start_date must use YYYY-MM-DD"))?;
+    let end = request
+        .end_date
+        .as_deref()
+        .map(|value| NaiveDate::parse_from_str(value, "%Y-%m-%d"))
+        .transpose()
+        .map_err(|_| anyhow::anyhow!("end_date must use YYYY-MM-DD"))?;
+    if let (Some(start), Some(end)) = (start, end) {
+        anyhow::ensure!(start <= end, "start_date must not be after end_date");
+    }
     let manifest = freeze_manifest(&request.strategy)?;
     let symbol = store.validate_symbol(&request.strategy.symbol)?;
     let mut dates = store.dates(&symbol);
@@ -148,6 +165,48 @@ pub fn open_holdout(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn holdout_outer_window_rejects_invalid_date_order() {
+        let request = HoldoutPlanRequest {
+            strategy: BacktestRequest {
+                symbol: "SPY".into(),
+                start_date: None,
+                end_date: None,
+                entry_minute: "10:00".into(),
+                exit_minute: "15:45".into(),
+                hold_trading_days: 5,
+                target_dte: 14,
+                quantity: 1,
+                pricing_mode: "micro".into(),
+                dealer_model: "classic".into(),
+                costs: Default::default(),
+                exits: Default::default(),
+                legs: vec![crate::backtest::BacktestLegRule {
+                    right: "PUT".into(),
+                    side: "BUY".into(),
+                    target_delta: 0.30,
+                    ratio: 1,
+                }],
+            },
+            start_date: Some("2026-10-01".into()),
+            end_date: Some("2026-09-01".into()),
+            holdout_sessions: 20,
+        };
+        let start = request
+            .start_date
+            .as_deref()
+            .map(|value| NaiveDate::parse_from_str(value, "%Y-%m-%d"))
+            .transpose()
+            .unwrap();
+        let end = request
+            .end_date
+            .as_deref()
+            .map(|value| NaiveDate::parse_from_str(value, "%Y-%m-%d"))
+            .transpose()
+            .unwrap();
+        assert!(start > end);
+    }
 
     #[test]
     fn commitment_changes_when_boundary_changes() {
