@@ -127,8 +127,8 @@ pub fn run_portfolio(
         "portfolio requires 1-20 strategies"
     );
     anyhow::ensure!(
-        request.initial_capital > 0.0,
-        "initial_capital must be positive"
+        request.initial_capital.is_finite() && request.initial_capital > 0.0,
+        "initial_capital must be finite and positive"
     );
     anyhow::ensure!(
         (1..=100).contains(&request.max_open_positions),
@@ -480,6 +480,12 @@ fn exit_timestamp(trade: &BacktestTrade) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn portfolio_initial_capital_must_be_finite() {
+        assert!(!f64::INFINITY.is_finite());
+        assert!(!f64::NAN.is_finite());
+    }
+
     #[test]
     fn entry_day_mark_never_uses_a_pre_entry_time() {
         let entry = "15:00".to_string();
