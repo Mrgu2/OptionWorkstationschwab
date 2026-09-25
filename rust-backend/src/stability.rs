@@ -83,6 +83,12 @@ pub fn analyze_stability(
         .first()
         .cloned()
         .ok_or_else(|| anyhow::anyhow!("missing base candidate"))?;
+    anyhow::ensure!(
+        base_stats.trades >= request.min_trades,
+        "base stability candidate has only {} trades; at least {} are required",
+        base_stats.trades,
+        request.min_trades
+    );
     let base_average_pnl = base_stats.average_pnl;
 
     let eligible_stats: Vec<BacktestStats> = rows
