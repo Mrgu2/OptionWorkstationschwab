@@ -185,9 +185,12 @@ active fold window so an exit cannot consume prices from a later fold.
 
 `POST /api/research/holdout/seal`
 
-Reserves the final N trading sessions for one frozen strategy definition. The
-response contains a SHA-256 commitment over the strategy ID and the development
-and holdout boundaries, but exposes no holdout performance.
+Reserves the final N trading sessions for one frozen strategy definition. New
+seals use protocol `untouched-holdout-v2`. The SHA-256 commitment binds the
+strategy ID, resolved development and holdout boundaries, a SHA-256 content
+fingerprint of the replay Parquet files inside the holdout window, the configured
+risk-free rate, and the declared research-engine contract. The response exposes
+these identities and the frozen strategy definition, but no holdout performance.
 
 The seal is also written to the append-only audit ledger. Only one active final
 holdout may exist per symbol. While the seal remains unopened, research
@@ -199,9 +202,22 @@ parameter cannot silently expose the reserved sample.
 
 `POST /api/research/holdout/open`
 
-Recomputes and verifies the commitment, records the opening event in the audit
-ledger, and reveals the holdout backtest. A commitment can be opened only once.
-A strategy or boundary change after sealing fails commitment verification.
+Loads the resolved holdout boundary from the sealed audit record, verifies the
+strategy ID and commitment, clears replay caches, verifies the current replay
+file bytes and engine configuration against the seal, runs the holdout, and
+checks the replay fingerprint again before returning the result. The second
+fingerprint check detects data mutation during evaluation. A commitment can be
+opened only once.
+
+Because the ledger stores the resolved boundary, adding newer replay dates after
+a seal does not move the reserved sample. Legacy v1 seals remain readable and
+openable once, but they cannot prove replay-file or engine identity because
+those fields were not part of the v1 commitment.
+
+The outer holdout sample dates and any dates already present on the strategy
+request must agree. If only one location supplies a boundary, that boundary is
+used. This prevents the API from silently sealing a different sample from the
+one shown in the strategy configuration.
 
 This protocol controls the workstation's research APIs for the sealed symbol.
 It cannot erase knowledge already obtained outside the workstation or through
