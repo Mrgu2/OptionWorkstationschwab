@@ -563,7 +563,10 @@ pub(crate) fn select_legs(
             .iter()
             .filter(|row| {
                 let executable_nbbo = row.bid > 0.0 && row.ask > 0.0 && row.ask >= row.bid;
-                row.right == right && executable_nbbo && row.quality_score >= 40.0
+                row.right == right
+                    && executable_nbbo
+                    && row.quality_score >= 50.0
+                    && row.spread_pct <= 25.0
             })
             .filter(|row| !used.contains(&row.symbol))
             .min_by(|a, b| {
