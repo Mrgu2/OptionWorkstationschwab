@@ -562,12 +562,8 @@ pub(crate) fn select_legs(
             .rows
             .iter()
             .filter(|row| {
-                let executable_entry = if side == "SELL" {
-                    row.bid > 0.0 && row.ask >= row.bid
-                } else {
-                    row.ask > 0.0 && row.bid >= 0.0 && row.ask >= row.bid
-                };
-                row.right == right && executable_entry && row.quality_score >= 40.0
+                let executable_nbbo = row.bid > 0.0 && row.ask > 0.0 && row.ask >= row.bid;
+                row.right == right && executable_nbbo && row.quality_score >= 40.0
             })
             .filter(|row| !used.contains(&row.symbol))
             .min_by(|a, b| {
