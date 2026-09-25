@@ -193,6 +193,14 @@ pub fn run_rolling_backtest(
         let initial_open_cost =
             execution_cost(&initial_legs, request.base.quantity, &request.base.costs);
         let debit = (-initial_analysis.entry_cash_flow).max(0.0);
+        let risk_based_exits = request.base.exits.take_profit_pct_of_risk.is_some()
+            || request.base.exits.stop_loss_pct_of_risk.is_some();
+        if risk_based_exits && initial_analysis.max_loss.is_none() {
+            skipped.push(format!(
+                "{entry_date}: percentage-of-risk exits require a finite max-loss estimate"
+            ));
+            continue;
+        }
         let mut campaign_risk_basis = initial_analysis
             .max_loss
             .map(f64::abs)
@@ -289,6 +297,7 @@ pub fn run_rolling_backtest(
                     && let Ok(next_analysis) =
                         analyze_strategy(&next_chain, &next_legs, request.base.quantity)
                     && next_analysis.executable
+                    && (!risk_based_exits || next_analysis.max_loss.is_some())
                 {
                     let next_open_cost =
                         execution_cost(&next_legs, request.base.quantity, &request.base.costs);
@@ -426,7 +435,7 @@ pub fn run_rolling_backtest(
             "take-profit and stop-loss checks occur before a roll decision on each session".into(),
             "a roll closes the current contracts and opens newly delta-selected contracts at the same configured exit minute".into(),
             "each roll pays both close and new-entry execution costs; campaign P/L is the sum of all cash flows less all modeled costs".into(),
-            "campaign risk basis is the maximum finite risk basis observed across its segments; an unbounded segment marks the whole campaign unbounded".into(),
+            "campaign risk basis is the maximum finite risk basis observed across its segments; percentage-of-risk exits never enter an unbounded segment because no finite risk denominator exists".into(),
         ],
     })
 }
