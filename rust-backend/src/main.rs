@@ -584,6 +584,18 @@ async fn holdout_open(
             "this holdout commitment has already been opened; create a new research hypothesis before using another final holdout",
         ));
     }
+    let active_seals = state
+        .audit
+        .active_holdout_seals_for_symbol(&plan.symbol)
+        .await
+        .map_err(ApiError::bad_request)?;
+    if !active_seals.iter().any(|seal| {
+        seal.get("commitment").and_then(Value::as_str) == Some(request.commitment.as_str())
+    }) {
+        return Err(ApiError::conflict(
+            "no matching active holdout seal exists in the audit ledger",
+        ));
+    }
 
     let report = open_holdout(&state.replay, &request).map_err(ApiError::bad_request)?;
     state
