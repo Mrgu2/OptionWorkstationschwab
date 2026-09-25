@@ -1,4 +1,5 @@
-use chrono::NaiveDate;
+use chrono::{Datelike, NaiveDate, TimeZone};
+use chrono_tz::America::New_York;
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -103,7 +104,12 @@ pub fn attribute(
         &request.pricing_mode,
         &request.dealer_model,
     )?;
-    let elapsed = elapsed_days(&request.entry_date, &request.exit_date)?;
+    let elapsed = elapsed_days(
+        &request.entry_date,
+        &request.entry_minute,
+        &request.exit_date,
+        &request.exit_minute,
+    )?;
     attribute_chains(&entry, &exit, &request.legs, request.quantity, elapsed)
 }
 
@@ -246,18 +252,71 @@ fn resolve_row<'a>(
         .ok_or_else(|| anyhow::anyhow!("contract not found: {} {}", leg.right, leg.strike))
 }
 
-fn elapsed_days(entry: &str, exit: &str) -> anyhow::Result<f64> {
-    let entry = NaiveDate::parse_from_str(entry, "%Y-%m-%d")?;
-    let exit = NaiveDate::parse_from_str(exit, "%Y-%m-%d")?;
-    anyhow::ensure!(exit >= entry, "exit date must not precede entry date");
-    Ok((exit - entry).num_days() as f64)
+fn elapsed_days(
+    entry_date: &str,
+    entry_minute: &str,
+    exit_date: &str,
+    exit_minute: &str,
+) -> anyhow::Result<f64> {
+    let entry_date = NaiveDate::parse_from_str(entry_date, "%Y-%m-%d")?;
+    let exit_date = NaiveDate::parse_from_str(exit_date, "%Y-%m-%d")?;
+    let (entry_hour, entry_minute_value) = parse_minute(entry_minute)?;
+    let (exit_hour, exit_minute_value) = parse_minute(exit_minute)?;
+
+    let entry = New_York
+        .with_ymd_and_hms(
+            entry_date.year(),
+            entry_date.month(),
+            entry_date.day(),
+            entry_hour,
+            entry_minute_value,
+            0,
+        )
+        .single()
+        .ok_or_else(|| anyhow::anyhow!("invalid entry timestamp"))?;
+    let exit = New_York
+        .with_ymd_and_hms(
+            exit_date.year(),
+            exit_date.month(),
+            exit_date.day(),
+            exit_hour,
+            exit_minute_value,
+            0,
+        )
+        .single()
+        .ok_or_else(|| anyhow::anyhow!("invalid exit timestamp"))?;
+    anyhow::ensure!(exit >= entry, "exit timestamp must not precede entry timestamp");
+    Ok((exit - entry).num_seconds() as f64 / 86_400.0)
+}
+
+fn parse_minute(value: &str) -> anyhow::Result<(u32, u32)> {
+    let (hour, minute) = value
+        .split_once(':')
+        .ok_or_else(|| anyhow::anyhow!("time must use HH:MM"))?;
+    let hour: u32 = hour.parse()?;
+    let minute: u32 = minute.parse()?;
+    anyhow::ensure!(hour <= 23 && minute <= 59, "invalid HH:MM time");
+    Ok((hour, minute))
 }
 
 #[cfg(test)]
 mod tests {
     use super::elapsed_days;
+
     #[test]
-    fn elapsed_days_is_calendar_based() {
-        assert_eq!(elapsed_days("2026-09-18", "2026-09-21").unwrap(), 3.0);
+    fn elapsed_days_includes_intraday_time() {
+        let elapsed = elapsed_days("2026-09-18", "10:00", "2026-09-18", "15:45").unwrap();
+        assert!((elapsed - 5.75 / 24.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn elapsed_days_counts_weekend_calendar_time() {
+        let elapsed = elapsed_days("2026-09-18", "15:45", "2026-09-21", "15:45").unwrap();
+        assert_eq!(elapsed, 3.0);
+    }
+
+    #[test]
+    fn elapsed_days_rejects_time_travel() {
+        assert!(elapsed_days("2026-09-18", "15:45", "2026-09-18", "10:00").is_err());
     }
 }
