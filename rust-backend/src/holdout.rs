@@ -95,6 +95,10 @@ pub fn plan_holdout(
         request.holdout_sessions >= 5,
         "holdout_sessions must be at least 5"
     );
+    anyhow::ensure!(
+        request.holdout_sessions > request.strategy.hold_trading_days,
+        "holdout_sessions must exceed hold_trading_days so the final sample contains at least one full-horizon trade"
+    );
 
     let effective_start = reconcile_boundary(
         "start_date",
