@@ -662,7 +662,9 @@ fn collect_regular_files(root: &Path, paths: &mut Vec<PathBuf>) -> anyhow::Resul
             .with_context(|| format!("read file type {}", path.display()))?;
         if file_type.is_dir() {
             collect_regular_files(&path, paths)?;
-        } else if file_type.is_file() {
+        } else if file_type.is_file()
+            && path.extension().and_then(|value| value.to_str()) == Some("parquet")
+        {
             paths.push(path);
         }
     }
