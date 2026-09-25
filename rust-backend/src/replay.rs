@@ -776,6 +776,9 @@ mod tests {
         assert!(matches!("micro", "micro" | "mid" | "ask"));
         assert!(matches!("classic", "classic" | "short_all" | "long_all"));
         assert!(!matches!("mido", "micro" | "mid" | "ask"));
-        assert!(!matches!("dealer_guess", "classic" | "short_all" | "long_all"));
+        assert!(!matches!(
+            "dealer_guess",
+            "classic" | "short_all" | "long_all"
+        ));
     }
 }

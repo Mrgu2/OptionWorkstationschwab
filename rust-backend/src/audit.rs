@@ -73,7 +73,10 @@ impl AuditStore {
         commitment: &str,
     ) -> anyhow::Result<AuditRecord> {
         validate_request(&request)?;
-        anyhow::ensure!(request.kind == "holdout_seal", "expected holdout_seal audit kind");
+        anyhow::ensure!(
+            request.kind == "holdout_seal",
+            "expected holdout_seal audit kind"
+        );
         let _guard = self.lock.lock().await;
         let records = read_records(&self.path)?;
         let opened = opened_holdout_commitments(&records);
@@ -99,11 +102,7 @@ impl AuditStore {
             );
         }
         anyhow::ensure!(
-            request
-                .payload
-                .get("commitment")
-                .and_then(Value::as_str)
-                == Some(commitment),
+            request.payload.get("commitment").and_then(Value::as_str) == Some(commitment),
             "holdout seal commitment payload mismatch"
         );
         self.append_unlocked(request)
@@ -115,7 +114,10 @@ impl AuditStore {
         commitment: &str,
     ) -> anyhow::Result<AuditRecord> {
         validate_request(&request)?;
-        anyhow::ensure!(request.kind == "holdout_open", "expected holdout_open audit kind");
+        anyhow::ensure!(
+            request.kind == "holdout_open",
+            "expected holdout_open audit kind"
+        );
         let _guard = self.lock.lock().await;
         let records = read_records(&self.path)?;
         let opened = opened_holdout_commitments(&records);
@@ -124,22 +126,14 @@ impl AuditStore {
             "this holdout commitment has already been opened"
         );
         anyhow::ensure!(
-            request
-                .payload
-                .get("commitment")
-                .and_then(Value::as_str)
-                == Some(commitment),
+            request.payload.get("commitment").and_then(Value::as_str) == Some(commitment),
             "holdout open commitment payload mismatch"
         );
         anyhow::ensure!(
             records.iter().any(|record| {
                 record.kind == "holdout_seal"
                     && record.symbol.eq_ignore_ascii_case(&request.symbol)
-                    && record
-                        .payload
-                        .get("commitment")
-                        .and_then(Value::as_str)
-                        == Some(commitment)
+                    && record.payload.get("commitment").and_then(Value::as_str) == Some(commitment)
             }),
             "no matching sealed holdout exists in the audit ledger"
         );
@@ -258,10 +252,7 @@ impl AuditStore {
     }
 }
 
-
-fn opened_holdout_commitments(
-    records: &[AuditRecord],
-) -> std::collections::HashSet<String> {
+fn opened_holdout_commitments(records: &[AuditRecord]) -> std::collections::HashSet<String> {
     records
         .iter()
         .filter(|record| record.kind == "holdout_open")

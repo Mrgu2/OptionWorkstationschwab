@@ -406,8 +406,7 @@ fn build_mtm_curve(
         for record in &active {
             open_risk += record.capital_at_risk;
             let trade = &record.trade;
-            let mark_minute = if date == trade.entry_date
-                && trade.exit_minute < trade.entry_minute
+            let mark_minute = if date == trade.entry_date && trade.exit_minute < trade.entry_minute
             {
                 &trade.entry_minute
             } else {
@@ -483,7 +482,11 @@ mod tests {
         let exit = "09:45".to_string();
         let date = "2026-09-24".to_string();
         let entry_date = "2026-09-24".to_string();
-        let mark = if date == entry_date && exit < entry { entry } else { exit };
+        let mark = if date == entry_date && exit < entry {
+            entry
+        } else {
+            exit
+        };
         assert_eq!(mark, "15:00");
     }
 
