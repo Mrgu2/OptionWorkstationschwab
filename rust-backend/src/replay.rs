@@ -534,7 +534,17 @@ impl ReplayStore {
             params.pricing_mode,
             params.dealer_model,
         )?;
-        let snapshot_id = format!("replay:{}", chain.snapshot_id);
+        let envelope_key = format!(
+            "{}|{}|{}|{}",
+            chain.snapshot_id,
+            params.max_dte,
+            chain.provenance.risk_free_rate.to_bits(),
+            chain.provenance.model
+        );
+        let snapshot_id = format!(
+            "replay:{}",
+            &hex::encode(Sha256::digest(envelope_key.as_bytes()))[..20]
+        );
         Ok(ReplaySnapshot {
             kind: "replay_snapshot",
             snapshot_id,
