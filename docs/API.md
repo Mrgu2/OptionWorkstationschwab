@@ -111,7 +111,11 @@ not submit orders.
 Runs a point-in-time options strategy backtest. Contracts are selected from the
 entry snapshot by target delta and are then held as the same contracts until the
 configured exit session. Buys use ask prices, sells use bid prices, and exit
-liquidation uses the opposite executable side.
+liquidation uses the opposite executable side. Expiration selection is bounded:
+0 DTE requires an exact same-day expiry, short-dated targets use tight calendar
+tolerances, and longer-dated targets never substitute an expiry more than ten
+calendar days away. Sessions without a sufficiently close expiry are skipped
+instead of silently changing the strategy's maturity exposure.
 
 The request supports:
 
@@ -182,12 +186,13 @@ Reserves the final N trading sessions for one frozen strategy definition. The
 response contains a SHA-256 commitment over the strategy ID and the development
 and holdout boundaries, but exposes no holdout performance.
 
-The seal is also written to the append-only audit ledger. While the seal remains
-unopened, research endpoints for the same symbol are blocked from overlapping
-the reserved holdout window. This includes backtests, regime scans,
-walk-forward validation, stability analysis, portfolio simulation, and rolling
-backtests. The lock is calendar based so changing one strategy parameter cannot
-silently expose the reserved sample.
+The seal is also written to the append-only audit ledger. Only one active final
+holdout may exist per symbol. While the seal remains unopened, research
+endpoints for the same symbol are blocked from overlapping the reserved holdout
+window. This includes backtests, P/L attribution, regime scans, walk-forward
+validation, stability analysis, bootstrap inference, portfolio simulation, and
+rolling backtests. The lock is calendar based so changing one strategy
+parameter cannot silently expose the reserved sample.
 
 `POST /api/research/holdout/open`
 
@@ -292,6 +297,18 @@ are descriptive subsets of the same sample and are not independent validation.
 Returns verified audit-ledger events in original ledger order. Optional symbol
 filtering preserves snapshot IDs and the original recorded payload. Missing
 decisions are never reconstructed as though they had been recorded.
+
+## Candidate-family integrity
+
+Walk-forward validation, parameter stability, bootstrap inference, and portfolio
+simulation reject duplicate strategy definitions at the backend. Repeating the
+same strategy does not create an additional hypothesis or an implicit second
+copy of the position. Increase `quantity` explicitly when larger exposure is
+intended.
+
+Research requests also reject malformed or reversed date ranges, malformed
+HH:MM times, non-finite numeric parameters, and unsupported pricing/dealer
+modes. Unknown modes no longer fall back silently to another model.
 
 ## Research limitations
 
