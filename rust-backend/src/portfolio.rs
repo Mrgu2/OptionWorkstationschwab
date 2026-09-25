@@ -405,11 +405,18 @@ fn build_mtm_curve(
         for record in &active {
             open_risk += record.capital_at_risk;
             let trade = &record.trade;
+            let mark_minute = if date == trade.entry_date
+                && trade.exit_minute < trade.entry_minute
+            {
+                &trade.entry_minute
+            } else {
+                &trade.exit_minute
+            };
             let marked = store
                 .chain(
                     &trade.symbol,
                     &date,
-                    &trade.exit_minute,
+                    mark_minute,
                     &trade.expiration,
                     &trade.pricing_mode,
                     &trade.dealer_model,
@@ -469,6 +476,16 @@ fn exit_timestamp(trade: &BacktestTrade) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn entry_day_mark_never_uses_a_pre_entry_time() {
+        let entry = "15:00".to_string();
+        let exit = "09:45".to_string();
+        let date = "2026-09-24".to_string();
+        let entry_date = "2026-09-24".to_string();
+        let mark = if date == entry_date && exit < entry { entry } else { exit };
+        assert_eq!(mark, "15:00");
+    }
+
     #[test]
     fn timestamps_sort_iso_dates_and_minutes() {
         let mut values = [
