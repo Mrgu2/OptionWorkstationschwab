@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Chart from './Chart'
 import { Metric } from './Primitives'
-import { apiJson } from '../lib/api'
+import { api, apiJson } from '../lib/api'
 
 function numberValue(value, fallback = 0) {
   const parsed = Number(value)
@@ -20,6 +20,20 @@ function formatPct(value) {
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value))
+}
+
+function inputFromSealedPlan(plan) {
+  if (!plan?.strategy_definition) return null
+  return {
+    strategy: {
+      ...clone(plan.strategy_definition),
+      start_date: plan.development_start,
+      end_date: plan.holdout_end,
+    },
+    start_date: plan.development_start,
+    end_date: plan.holdout_end,
+    holdout_sessions: plan.holdout_sessions,
+  }
 }
 
 export default function ResearchLab({ catalog, defaultSymbol, pricingMode, dealerModel }) {
@@ -81,6 +95,23 @@ export default function ResearchLab({ catalog, defaultSymbol, pricingMode, deale
     setStartDate(dates[Math.max(0, dates.length - 120)] || dates[0])
     setEndDate(dates.at(-1))
   }, [symbol, dates.length, dates[0], dates.at(-1)])
+
+  useEffect(() => {
+    let cancelled = false
+    setHoldoutPlan(null)
+    setHoldoutPlanInput(null)
+    setHoldoutResult(null)
+    api(`/api/research/holdout/active?symbol=${encodeURIComponent(symbol)}`)
+      .then((payload) => {
+        if (cancelled || !payload?.active) return
+        setHoldoutPlan(payload.active)
+        setHoldoutPlanInput(inputFromSealedPlan(payload.active))
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [symbol])
 
   const request = useMemo(() => ({
     symbol,
@@ -451,7 +482,7 @@ export default function ResearchLab({ catalog, defaultSymbol, pricingMode, deale
         </div>
         <div className="research-actions">
           <button onClick={sealHoldout} disabled={Boolean(status)}>Seal holdout</button>
-          <button className="primary" onClick={openHoldout} disabled={Boolean(status) || !holdoutPlan || Boolean(holdoutResult) || holdoutPlanStale}>Open once</button>
+          <button className="primary" onClick={openHoldout} disabled={Boolean(status) || !holdoutPlan || !holdoutPlanInput || Boolean(holdoutResult)}>Open sealed once</button>
           <button onClick={exportResearch}>Export research JSON</button>
         </div>
         {holdoutPlan && <div className="holdout-seal">
@@ -461,7 +492,8 @@ export default function ResearchLab({ catalog, defaultSymbol, pricingMode, deale
           <span>Holdout {holdoutPlan.holdout_start} → {holdoutPlan.holdout_end}</span>
           {holdoutPlan.data_fingerprint && <span>Data {holdoutPlan.data_fingerprint.digest.slice(0, 16)}… · {holdoutPlan.data_fingerprint.files} files</span>}
           {holdoutPlan.engine_contract && <span>Engine {holdoutPlan.engine_contract}</span>}
-          {holdoutPlanStale && <span className="down">Strategy or sample settings changed. Seal again before opening.</span>}
+          {holdoutPlanStale && <span className="down">Current editor differs from the seal. Opening uses the original sealed strategy, not the edited draft.</span>}
+          {!holdoutPlanInput && <span className="down">Legacy seal found without a stored strategy definition. Recreate the original strategy inputs to open it.</span>}
         </div>}
 
         <div className="research-section-title portfolio-title"><strong>Rolling engine</strong><span>close old contracts, reopen by target delta</span></div>
