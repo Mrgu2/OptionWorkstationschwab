@@ -550,11 +550,17 @@ pub(crate) fn select_legs(
         } else {
             rule.target_delta.abs()
         };
+        let side = rule.side.to_uppercase();
         let row = chain
             .rows
             .iter()
             .filter(|row| {
-                row.right == right && row.bid >= 0.0 && row.ask > 0.0 && row.quality_score >= 40.0
+                let executable_entry = if side == "SELL" {
+                    row.bid > 0.0 && row.ask >= row.bid
+                } else {
+                    row.ask > 0.0 && row.bid >= 0.0 && row.ask >= row.bid
+                };
+                row.right == right && executable_entry && row.quality_score >= 40.0
             })
             .filter(|row| !used.contains(&row.symbol))
             .min_by(|a, b| {
@@ -562,13 +568,18 @@ pub(crate) fn select_legs(
                     .abs()
                     .total_cmp(&(b.delta - target).abs())
             })
-            .ok_or_else(|| anyhow::anyhow!("no contract for {right} target delta {target:.2}"))?;
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "no executable {} {right} contract for target delta {target:.2}",
+                    rule.side.to_uppercase()
+                )
+            })?;
         used.insert(row.symbol.clone());
         selected.push(StrategyLegInput {
             symbol: Some(row.symbol.clone()),
             strike: row.strike,
             right,
-            side: rule.side.to_uppercase(),
+            side,
             ratio: rule.ratio,
         });
     }
