@@ -580,7 +580,15 @@ impl ReplayStore {
             .into_iter()
             .rev()
             .filter_map(|date| {
-                self.atm_history_iv_for_dte(symbol, &date, target_dte, history_minute)
+                let allow_close_fallback =
+                    date.as_str() < trading_date || history_minute >= "15:30";
+                self.atm_history_iv_for_dte(
+                    symbol,
+                    &date,
+                    target_dte,
+                    history_minute,
+                    allow_close_fallback,
+                )
             })
             .take(limit)
             .collect::<Vec<_>>()
@@ -595,6 +603,7 @@ impl ReplayStore {
         trading_date: &str,
         target_dte: i64,
         minute: &str,
+        allow_close_fallback: bool,
     ) -> Option<IvHistoryPoint> {
         let day = NaiveDate::parse_from_str(trading_date, "%Y-%m-%d").ok()?;
         let (expiry_date, expiry) = self
@@ -612,8 +621,12 @@ impl ReplayStore {
             .chain(symbol, trading_date, minute, &expiry, "mid", "classic")
             .ok()
             .or_else(|| {
-                self.chain(symbol, trading_date, "15:30", &expiry, "mid", "classic")
-                    .ok()
+                allow_close_fallback
+                    .then(|| {
+                        self.chain(symbol, trading_date, "15:30", &expiry, "mid", "classic")
+                            .ok()
+                    })
+                    .flatten()
             })?;
         Some(IvHistoryPoint {
             date: trading_date.into(),
@@ -946,6 +959,16 @@ mod tests {
         assert_eq!(before.files, 2);
         assert_eq!(after.files, 2);
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn current_day_history_never_uses_afternoon_fallback_before_it_exists() {
+        let current = "2026-09-25";
+        let history_minute = point_in_time_history_minute("09:31");
+        let prior_date_allows_fallback = "2026-09-24" < current || history_minute >= "15:30";
+        let current_date_allows_fallback = current < current || history_minute >= "15:30";
+        assert!(prior_date_allows_fallback);
+        assert!(!current_date_allows_fallback);
     }
 
     #[test]
