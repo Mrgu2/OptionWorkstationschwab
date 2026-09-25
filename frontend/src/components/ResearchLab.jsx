@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Chart from './Chart'
 import { Metric } from './Primitives'
 import { apiJson } from '../lib/api'
@@ -70,6 +70,7 @@ export default function ResearchLab({ catalog, defaultSymbol, pricingMode, deale
   const [manifest, setManifest] = useState(null)
   const [status, setStatus] = useState('')
   const [error, setError] = useState('')
+  const requestGeneration = useRef(0)
 
   useEffect(() => {
     if (defaultSymbol) setSymbol(defaultSymbol)
@@ -111,6 +112,9 @@ export default function ResearchLab({ catalog, defaultSymbol, pricingMode, deale
   const strategyConfigKey = JSON.stringify(request)
 
   useEffect(() => {
+    requestGeneration.current += 1
+    setStatus('')
+    setError('')
     setResult(null)
     setRegime(null)
     setWalkForward(null)
@@ -151,6 +155,9 @@ export default function ResearchLab({ catalog, defaultSymbol, pricingMode, deale
   )
 
   useEffect(() => {
+    requestGeneration.current += 1
+    setStatus('')
+    setError('')
     setWalkForward(null)
     setStability(null)
     setInference(null)
@@ -158,23 +165,32 @@ export default function ResearchLab({ catalog, defaultSymbol, pricingMode, deale
   }, [candidateGrid, trainSessions, testSessions, anchored, bootstrapIterations, inferenceAlpha])
 
   useEffect(() => {
+    requestGeneration.current += 1
+    setStatus('')
+    setError('')
     setPortfolio(null)
   }, [initialCapital, maxRiskPerTrade, maxTotalRisk, maxOpenPositions])
 
   useEffect(() => {
+    requestGeneration.current += 1
+    setStatus('')
+    setError('')
     setRolling(null)
   }, [rollDte, rollTargetDte, rollingCampaignSessions, maxRolls])
 
   const run = async (label, action) => {
+    const generation = requestGeneration.current + 1
+    requestGeneration.current = generation
     setStatus(label)
     setError('')
     try {
-      return await action()
+      const value = await action()
+      return requestGeneration.current === generation ? value : null
     } catch (reason) {
-      setError(reason.message)
+      if (requestGeneration.current === generation) setError(reason.message)
       return null
     } finally {
-      setStatus('')
+      if (requestGeneration.current === generation) setStatus('')
     }
   }
 
