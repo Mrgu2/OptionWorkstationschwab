@@ -111,15 +111,30 @@ export default function ResearchLab({ catalog, defaultSymbol, pricingMode, deale
   const candidates = useMemo(() => {
     const lines = candidateGrid.split(/\n+/).map((line) => line.trim()).filter(Boolean)
     const parsed = []
+    const seen = new Set()
     for (const line of lines) {
       const deltas = line.split(',').map((value) => Number(value.trim()))
       if (deltas.length !== legs.length || deltas.some((value) => !Number.isFinite(value))) continue
+      const normalized = deltas.map((value) => Math.abs(value).toFixed(6)).join(',')
+      if (seen.has(normalized)) continue
+      seen.add(normalized)
       const candidate = clone(request)
       candidate.legs = candidate.legs.map((leg, index) => ({ ...leg, target_delta: Math.abs(deltas[index]) }))
       parsed.push(candidate)
     }
     return parsed
   }, [candidateGrid, legs.length, request])
+
+  const currentHoldoutInput = useMemo(() => ({
+    strategy: clone(request),
+    start_date: startDate || null,
+    end_date: endDate || null,
+    holdout_sessions: numberValue(holdoutSessions, 20),
+  }), [request, startDate, endDate, holdoutSessions])
+
+  const holdoutPlanStale = Boolean(
+    holdoutPlanInput && JSON.stringify(holdoutPlanInput) !== JSON.stringify(currentHoldoutInput),
+  )
 
   const run = async (label, action) => {
     setStatus(label)
@@ -200,12 +215,7 @@ export default function ResearchLab({ catalog, defaultSymbol, pricingMode, deale
   }
 
   const sealHoldout = async () => {
-    const payload = {
-      strategy: clone(request),
-      start_date: startDate || null,
-      end_date: endDate || null,
-      holdout_sessions: numberValue(holdoutSessions, 20),
-    }
+    const payload = clone(currentHoldoutInput)
     const data = await run('Sealing untouched holdout', () => apiJson('/api/research/holdout/seal', 'POST', payload))
     if (!data) return
     setHoldoutPlan(data)
@@ -396,13 +406,14 @@ export default function ResearchLab({ catalog, defaultSymbol, pricingMode, deale
         </div>
         <div className="research-actions">
           <button onClick={sealHoldout} disabled={Boolean(status)}>Seal holdout</button>
-          <button className="primary" onClick={openHoldout} disabled={Boolean(status) || !holdoutPlan || Boolean(holdoutResult)}>Open once</button>
+          <button className="primary" onClick={openHoldout} disabled={Boolean(status) || !holdoutPlan || Boolean(holdoutResult) || holdoutPlanStale}>Open once</button>
           <button onClick={exportResearch}>Export research JSON</button>
         </div>
         {holdoutPlan && <div className="holdout-seal">
           <span>Commitment {holdoutPlan.commitment.slice(0, 20)}…</span>
           <span>Development through {holdoutPlan.development_end}</span>
           <span>Holdout {holdoutPlan.holdout_start} → {holdoutPlan.holdout_end}</span>
+          {holdoutPlanStale && <span className="down">Strategy or sample settings changed. Seal again before opening.</span>}
         </div>}
 
         <div className="research-section-title portfolio-title"><strong>Rolling engine</strong><span>close old contracts, reopen by target delta</span></div>
