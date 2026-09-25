@@ -408,6 +408,8 @@ impl ReplayStore {
         trading_date: &str,
         minute: &str,
         max_dte: i64,
+        pricing_mode: &str,
+        dealer_model: &str,
     ) -> anyhow::Result<SurfaceSnapshot> {
         let clean = self.validate_symbol(symbol)?;
         let day = self.validate_date(&clean, trading_date)?;
@@ -435,8 +437,15 @@ impl ReplayStore {
         let chains = candidates
             .iter()
             .filter_map(|expiry| {
-                self.chain(&clean, trading_date, minute, expiry, "micro", "classic")
-                    .ok()
+                self.chain(
+                    &clean,
+                    trading_date,
+                    minute,
+                    expiry,
+                    pricing_mode,
+                    dealer_model,
+                )
+                .ok()
             })
             .collect::<Vec<_>>();
         anyhow::ensure!(!chains.is_empty(), "No usable expirations at {minute}");
@@ -453,6 +462,8 @@ impl ReplayStore {
         trading_date: &str,
         minute: &str,
         expiration: &str,
+        pricing_mode: &str,
+        dealer_model: &str,
     ) -> anyhow::Result<Value> {
         let clean = self.validate_symbol(symbol)?;
         self.validate_date(&clean, trading_date)?;
@@ -471,8 +482,22 @@ impl ReplayStore {
             })
             .filter(|value| value.is_finite() && *value > 0.0)
             .collect();
-        let snapshot = self.chain(&clean, trading_date, minute, expiration, "micro", "classic")?;
-        let history = self.matched_iv_history(&clean, trading_date, snapshot.dte, minute, 50);
+        let snapshot = self.chain(
+            &clean,
+            trading_date,
+            minute,
+            expiration,
+            pricing_mode,
+            dealer_model,
+        )?;
+        let history = self.matched_iv_history(
+            &clean,
+            trading_date,
+            snapshot.dte,
+            minute,
+            pricing_mode,
+            50,
+        );
         serde_json::to_value(build_context(VolatilityInput {
             symbol: clean,
             as_of: snapshot.timestamp.clone(),
@@ -504,12 +529,16 @@ impl ReplayStore {
             params.trading_date,
             params.minute,
             params.max_dte,
+            params.pricing_mode,
+            params.dealer_model,
         )?;
         let volatility = self.volatility_context(
             params.symbol,
             params.trading_date,
             params.minute,
             params.expiration,
+            params.pricing_mode,
+            params.dealer_model,
         )?;
         let snapshot_id = format!("replay:{}", chain.snapshot_id);
         Ok(ReplaySnapshot {
@@ -538,6 +567,7 @@ impl ReplayStore {
                 &snapshot.date,
                 snapshot.dte,
                 &snapshot.minute,
+                &snapshot.pricing_mode,
                 50,
             )
         } else {
@@ -576,6 +606,7 @@ impl ReplayStore {
         trading_date: &str,
         target_dte: i64,
         minute: &str,
+        pricing_mode: &str,
         limit: usize,
     ) -> Vec<IvHistoryPoint> {
         let history_minute = point_in_time_history_minute(minute);
@@ -590,6 +621,7 @@ impl ReplayStore {
                     &date,
                     target_dte,
                     history_minute,
+                    pricing_mode,
                     allow_close_fallback,
                 )
             })
@@ -606,6 +638,7 @@ impl ReplayStore {
         trading_date: &str,
         target_dte: i64,
         minute: &str,
+        pricing_mode: &str,
         allow_close_fallback: bool,
     ) -> Option<IvHistoryPoint> {
         let day = NaiveDate::parse_from_str(trading_date, "%Y-%m-%d").ok()?;
@@ -621,12 +654,19 @@ impl ReplayStore {
             return None;
         }
         let chain = self
-            .chain(symbol, trading_date, minute, &expiry, "mid", "classic")
+            .chain(symbol, trading_date, minute, &expiry, pricing_mode, "classic")
             .ok()
             .or_else(|| {
                 allow_close_fallback
                     .then(|| {
-                        self.chain(symbol, trading_date, "15:30", &expiry, "mid", "classic")
+                        self.chain(
+                            symbol,
+                            trading_date,
+                            "15:30",
+                            &expiry,
+                            pricing_mode,
+                            "classic",
+                        )
                             .ok()
                     })
                     .flatten()
