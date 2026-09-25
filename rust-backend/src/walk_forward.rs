@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     backtest::{BacktestRequest, BacktestStats, BacktestTrade, run_backtest, summarize},
-    manifest::freeze_manifest,
+    manifest::{freeze_manifest, unique_strategy_ids},
     replay::ReplayStore,
 };
 
@@ -116,6 +116,7 @@ pub fn run_walk_forward(
         ),
         "selection_metric must be average_pnl, profit_factor, or total_pnl"
     );
+    unique_strategy_ids(&request.candidates)?;
 
     let symbol = store.validate_symbol(&request.candidates[0].symbol)?;
     for candidate in &request.candidates {
