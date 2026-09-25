@@ -22,6 +22,14 @@ function clone(value) {
   return JSON.parse(JSON.stringify(value))
 }
 
+function stableStringify(value) {
+  if (Array.isArray(value)) return `[${value.map((item) => stableStringify(item)).join(',')}]`
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`).join(',')}}`
+  }
+  return JSON.stringify(value)
+}
+
 function inputFromSealedPlan(plan) {
   if (!plan?.strategy_definition) return null
   return {
@@ -182,7 +190,7 @@ export default function ResearchLab({ catalog, defaultSymbol, pricingMode, deale
   }), [request, startDate, endDate, holdoutSessions])
 
   const holdoutPlanStale = Boolean(
-    holdoutPlanInput && JSON.stringify(holdoutPlanInput) !== JSON.stringify(currentHoldoutInput),
+    holdoutPlanInput && stableStringify(holdoutPlanInput) !== stableStringify(currentHoldoutInput),
   )
 
   useEffect(() => {
