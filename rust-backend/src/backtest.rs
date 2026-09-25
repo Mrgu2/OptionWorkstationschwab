@@ -369,6 +369,23 @@ pub fn run_backtest(
 }
 
 pub(crate) fn validate_request(request: &BacktestRequest) -> anyhow::Result<()> {
+    let start = request
+        .start_date
+        .as_deref()
+        .map(|value| NaiveDate::parse_from_str(value, "%Y-%m-%d"))
+        .transpose()
+        .map_err(|_| anyhow::anyhow!("start_date must use YYYY-MM-DD"))?;
+    let end = request
+        .end_date
+        .as_deref()
+        .map(|value| NaiveDate::parse_from_str(value, "%Y-%m-%d"))
+        .transpose()
+        .map_err(|_| anyhow::anyhow!("end_date must use YYYY-MM-DD"))?;
+    if let (Some(start), Some(end)) = (start, end) {
+        anyhow::ensure!(start <= end, "start_date must not be after end_date");
+    }
+    validate_hhmm(&request.entry_minute, "entry_minute")?;
+    validate_hhmm(&request.exit_minute, "exit_minute")?;
     anyhow::ensure!(
         !request.legs.is_empty() && request.legs.len() <= 8,
         "backtest requires 1-8 legs"
@@ -386,17 +403,23 @@ pub(crate) fn validate_request(request: &BacktestRequest) -> anyhow::Result<()> 
         "target_dte must be between 0 and 1000"
     );
     anyhow::ensure!(
-        request.costs.commission_per_contract >= 0.0 && request.costs.slippage_per_contract >= 0.0,
-        "execution costs must be non-negative"
+        request.costs.commission_per_contract.is_finite()
+            && request.costs.slippage_per_contract.is_finite()
+            && request.costs.commission_per_contract >= 0.0
+            && request.costs.slippage_per_contract >= 0.0,
+        "execution costs must be finite and non-negative"
     );
     if let Some(value) = request.exits.take_profit_pct_of_risk {
         anyhow::ensure!(
-            value > 0.0 && value <= 10.0,
+            value.is_finite() && value > 0.0 && value <= 10.0,
             "invalid take-profit threshold"
         );
     }
     if let Some(value) = request.exits.stop_loss_pct_of_risk {
-        anyhow::ensure!(value > 0.0 && value <= 10.0, "invalid stop-loss threshold");
+        anyhow::ensure!(
+            value.is_finite() && value > 0.0 && value <= 10.0,
+            "invalid stop-loss threshold"
+        );
     }
     if let Some(value) = request.exits.exit_dte_lte {
         anyhow::ensure!((0..=1000).contains(&value), "invalid exit DTE threshold");
@@ -411,14 +434,32 @@ pub(crate) fn validate_request(request: &BacktestRequest) -> anyhow::Result<()> 
             "invalid leg side"
         );
         anyhow::ensure!(
-            (0.01..=0.99).contains(&leg.target_delta.abs()),
-            "target_delta must be between 0.01 and 0.99"
+            leg.target_delta.is_finite() && (0.01..=0.99).contains(&leg.target_delta.abs()),
+            "target_delta must be finite and between 0.01 and 0.99"
         );
         anyhow::ensure!(
             (1..=20).contains(&leg.ratio),
             "leg ratio must be between 1 and 20"
         );
     }
+    Ok(())
+}
+
+fn validate_hhmm(value: &str, field: &str) -> anyhow::Result<()> {
+    let Some((hour, minute)) = value.split_once(':') else {
+        anyhow::bail!("{field} must use HH:MM");
+    };
+    anyhow::ensure!(
+        hour.len() == 2 && minute.len() == 2,
+        "{field} must use HH:MM"
+    );
+    let hour: u8 = hour
+        .parse()
+        .map_err(|_| anyhow::anyhow!("{field} must use HH:MM"))?;
+    let minute: u8 = minute
+        .parse()
+        .map_err(|_| anyhow::anyhow!("{field} must use HH:MM"))?;
+    anyhow::ensure!(hour <= 23 && minute <= 59, "invalid {field}");
     Ok(())
 }
 
@@ -666,6 +707,40 @@ mod tests {
             choose_exit_reason(0.0, 100.0, 2, 2, &request).as_deref(),
             Some("dte_exit")
         );
+    }
+
+    #[test]
+    fn request_rejects_invalid_or_reversed_dates() {
+        let mut request = test_request();
+        request.legs = vec![BacktestLegRule {
+            right: "PUT".into(),
+            side: "BUY".into(),
+            target_delta: 0.30,
+            ratio: 1,
+        }];
+        request.start_date = Some("2026-10-01".into());
+        request.end_date = Some("2026-09-01".into());
+        assert!(validate_request(&request).is_err());
+
+        request.start_date = Some("09/01/2026".into());
+        request.end_date = None;
+        assert!(validate_request(&request).is_err());
+    }
+
+    #[test]
+    fn request_rejects_invalid_time_format() {
+        let mut request = test_request();
+        request.legs = vec![BacktestLegRule {
+            right: "PUT".into(),
+            side: "BUY".into(),
+            target_delta: 0.30,
+            ratio: 1,
+        }];
+        request.entry_minute = "9:30".into();
+        assert!(validate_request(&request).is_err());
+        request.entry_minute = "09:30".into();
+        request.exit_minute = "24:00".into();
+        assert!(validate_request(&request).is_err());
     }
 
     #[test]
