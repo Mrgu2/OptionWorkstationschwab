@@ -129,7 +129,10 @@ The request supports:
 - optional take-profit, stop-loss, and DTE exit rules.
 
 The response includes every trade, skipped sessions, cumulative P/L, win rate,
-profit factor, median P/L, maximum drawdown, and total modeled execution costs.
+profit factor, median P/L, maximum drawdown, total modeled execution costs, and
+entry-session completion coverage. Attempted, completed, and skipped entry
+counts are reported explicitly so missing historical quotes cannot disappear
+from the performance summary.
 Each trade exposes gross P/L, net P/L, entry/exit costs, holding sessions, risk
 basis, and exit reason. The response also records the entry ATM IV, net GEX,
 gamma-flip relationship, RR25, BF25, and quote quality so later regime analysis
@@ -254,7 +257,9 @@ contracts and opens newly delta-selected contracts at the same configured
 minute.
 
 Every roll records the old and new expiration, both leg sets, segment P/L, and
-the close-plus-reopen execution costs. Take-profit and stop-loss checks occur
+the close-plus-reopen execution costs. The report also exposes attempted,
+completed, and skipped campaign counts plus a completion rate so missing marks
+remain visible when evaluating rolling results. Take-profit and stop-loss checks occur
 before the roll decision. The rolling strategy has its own deterministic ID so
 its results cannot be confused with the non-rolling base strategy.
 
