@@ -232,6 +232,15 @@ pub fn run_backtest(
         let entry_costs = execution_cost(&selected_legs, request.quantity, &request.costs);
         let debit = (-entry_analysis.entry_cash_flow).max(0.0);
         let bounded_risk = entry_analysis.max_loss.is_some();
+        if !bounded_risk
+            && (request.exits.take_profit_pct_of_risk.is_some()
+                || request.exits.stop_loss_pct_of_risk.is_some())
+        {
+            skipped.push(format!(
+                "{entry_date}: percentage-of-risk exits require a finite max-loss estimate"
+            ));
+            continue;
+        }
         let risk_basis = entry_analysis
             .max_loss
             .map(f64::abs)
@@ -297,7 +306,7 @@ pub fn run_backtest(
             continue;
         };
 
-        let denominator = (debit + entry_costs).max(0.0);
+        let return_on_debit = (debit > 0.0).then_some(pnl / (debit + entry_costs));
         trades.push(BacktestTrade {
             symbol: symbol.clone(),
             quantity: request.quantity,
@@ -321,7 +330,7 @@ pub fn run_backtest(
             bounded_risk,
             exit_reason,
             holding_sessions,
-            return_on_debit: (denominator > 0.0).then_some(pnl / denominator),
+            return_on_debit,
             entry_atm_iv: entry_chain.metrics.atm_iv,
             entry_net_gex: entry_chain.metrics.net_gex,
             entry_gamma_flip: entry_chain.metrics.gamma_flip,
@@ -742,6 +751,21 @@ mod tests {
             min_quote_quality: 100.0,
             legs: vec![],
         }
+    }
+
+    #[test]
+    fn return_on_debit_is_not_defined_for_credit_entries() {
+        let credit_cash_flow: f64 = 250.0;
+        let entry_costs: f64 = 1.4;
+        let pnl: f64 = 50.0;
+        let debit = (-credit_cash_flow).max(0.0);
+        let return_on_debit = (debit > 0.0).then_some(pnl / (debit + entry_costs));
+        assert!(return_on_debit.is_none());
+
+        let debit_cash_flow: f64 = -250.0;
+        let debit = (-debit_cash_flow).max(0.0);
+        let return_on_debit = (debit > 0.0).then_some(pnl / (debit + entry_costs));
+        assert!(return_on_debit.is_some());
     }
 
     #[test]
