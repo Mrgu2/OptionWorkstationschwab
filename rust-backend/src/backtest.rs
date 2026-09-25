@@ -215,6 +215,13 @@ pub fn run_backtest(
                 continue;
             }
         };
+        if !entry_analysis.executable {
+            skipped.push(format!(
+                "{entry_date}: entry is not executable: {}",
+                entry_analysis.blockers.join("; ")
+            ));
+            continue;
+        }
 
         let entry_costs = execution_cost(&selected_legs, request.quantity, &request.costs);
         let debit = (-entry_analysis.entry_cash_flow).max(0.0);
@@ -243,8 +250,8 @@ pub fn run_backtest(
             };
             let exit_analysis =
                 match analyze_strategy(&exit_chain, &selected_legs, request.quantity) {
-                    Ok(value) => value,
-                    Err(_) => continue,
+                    Ok(value) if value.executable => value,
+                    Ok(_) | Err(_) => continue,
                 };
             let exit_costs = execution_cost(&selected_legs, request.quantity, &request.costs);
             let gross_pnl = entry_analysis.entry_cash_flow + exit_analysis.liquidation_value;
