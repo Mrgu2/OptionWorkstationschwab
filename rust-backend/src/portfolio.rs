@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     backtest::{BacktestRequest, BacktestTrade, run_backtest},
-    manifest::freeze_manifest,
+    manifest::{freeze_manifest, unique_strategy_ids},
     replay::ReplayStore,
     strategy::analyze_strategy,
 };
@@ -146,6 +146,7 @@ pub fn run_portfolio(
         request.max_risk_pct_per_trade <= request.max_total_open_risk_pct,
         "per-trade risk cap cannot exceed total open-risk cap"
     );
+    unique_strategy_ids(&request.strategies)?;
 
     let mut candidates = Vec::new();
     for strategy in &request.strategies {
