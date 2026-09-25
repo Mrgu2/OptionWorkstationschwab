@@ -207,6 +207,9 @@ fn validate_minute(value: &str) -> Result<(), ApiError> {
     let Some((hour, minute)) = value.split_once(':') else {
         return Err(ApiError::bad_request("minute must use HH:MM"));
     };
+    if hour.len() != 2 || minute.len() != 2 || value.len() != 5 {
+        return Err(ApiError::bad_request("minute must use zero-padded HH:MM"));
+    }
     let hour: u8 = hour.parse().map_err(ApiError::bad_request)?;
     let minute: u8 = minute.parse().map_err(ApiError::bad_request)?;
     if hour > 23 || minute > 59 {
