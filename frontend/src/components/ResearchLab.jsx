@@ -23,8 +23,8 @@ function clone(value) {
 }
 
 export default function ResearchLab({ catalog, defaultSymbol, pricingMode, dealerModel }) {
-  const dates = catalog?.common_dates || []
   const [symbol, setSymbol] = useState(defaultSymbol || 'SPY')
+  const dates = catalog?.dates_by_symbol?.[symbol] || catalog?.common_dates || []
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
   const [entryMinute, setEntryMinute] = useState('10:00')
@@ -77,9 +77,9 @@ export default function ResearchLab({ catalog, defaultSymbol, pricingMode, deale
 
   useEffect(() => {
     if (!dates.length) return
-    setStartDate((current) => current || dates[Math.max(0, dates.length - 120)] || dates[0])
-    setEndDate((current) => current || dates.at(-1))
-  }, [dates.length])
+    setStartDate(dates[Math.max(0, dates.length - 120)] || dates[0])
+    setEndDate(dates.at(-1))
+  }, [symbol, dates.length, dates[0], dates.at(-1)])
 
   const request = useMemo(() => ({
     symbol,
@@ -108,6 +108,20 @@ export default function ResearchLab({ catalog, defaultSymbol, pricingMode, deale
     })),
   }), [symbol, startDate, endDate, entryMinute, exitMinute, holdDays, targetDte, quantity, pricingMode, dealerModel, commission, slippage, takeProfit, stopLoss, exitDte, legs])
 
+  const strategyConfigKey = JSON.stringify(request)
+
+  useEffect(() => {
+    setResult(null)
+    setRegime(null)
+    setWalkForward(null)
+    setStability(null)
+    setInference(null)
+    setPortfolio(null)
+    setRolling(null)
+    setAttribution(null)
+    setManifest(null)
+  }, [strategyConfigKey])
+
   const candidates = useMemo(() => {
     const lines = candidateGrid.split(/\n+/).map((line) => line.trim()).filter(Boolean)
     const parsed = []
@@ -135,6 +149,21 @@ export default function ResearchLab({ catalog, defaultSymbol, pricingMode, deale
   const holdoutPlanStale = Boolean(
     holdoutPlanInput && JSON.stringify(holdoutPlanInput) !== JSON.stringify(currentHoldoutInput),
   )
+
+  useEffect(() => {
+    setWalkForward(null)
+    setStability(null)
+    setInference(null)
+    setPortfolio(null)
+  }, [candidateGrid, trainSessions, testSessions, anchored, bootstrapIterations, inferenceAlpha])
+
+  useEffect(() => {
+    setPortfolio(null)
+  }, [initialCapital, maxRiskPerTrade, maxTotalRisk, maxOpenPositions])
+
+  useEffect(() => {
+    setRolling(null)
+  }, [rollDte, rollTargetDte, rollingCampaignSessions, maxRolls])
 
   const run = async (label, action) => {
     setStatus(label)
