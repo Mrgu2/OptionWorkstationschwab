@@ -176,6 +176,13 @@ pub fn run_rolling_backtest(
                     continue;
                 }
             };
+        if !initial_analysis.executable {
+            skipped.push(format!(
+                "{entry_date}: initial position is not executable: {}",
+                initial_analysis.blockers.join("; ")
+            ));
+            continue;
+        }
 
         let initial_open_cost =
             execution_cost(&initial_legs, request.base.quantity, &request.base.costs);
@@ -217,8 +224,8 @@ pub fn run_rolling_backtest(
                 Err(_) => continue,
             };
             let analysis = match analyze_strategy(&chain, &current_legs, request.base.quantity) {
-                Ok(value) => value,
-                Err(_) => continue,
+                Ok(value) if value.executable => value,
+                Ok(_) | Err(_) => continue,
             };
             let current_close_cost =
                 execution_cost(&current_legs, request.base.quantity, &request.base.costs);
@@ -275,6 +282,7 @@ pub fn run_rolling_backtest(
                     && let Ok(next_legs) = select_legs(&next_chain, &request.base.legs)
                     && let Ok(next_analysis) =
                         analyze_strategy(&next_chain, &next_legs, request.base.quantity)
+                    && next_analysis.executable
                 {
                     let next_open_cost =
                         execution_cost(&next_legs, request.base.quantity, &request.base.costs);
