@@ -545,15 +545,18 @@ async fn holdout_seal(
     let plan = plan_holdout(&state.replay, &request).map_err(ApiError::bad_request)?;
     state
         .audit
-        .append(AuditCaptureRequest {
-            kind: "holdout_seal".into(),
-            mode: "system".into(),
-            symbol: plan.symbol.clone(),
-            snapshot_id: None,
-            payload: serde_json::to_value(&plan).map_err(ApiError::bad_request)?,
-        })
+        .append_holdout_seal_once(
+            AuditCaptureRequest {
+                kind: "holdout_seal".into(),
+                mode: "system".into(),
+                symbol: plan.symbol.clone(),
+                snapshot_id: None,
+                payload: serde_json::to_value(&plan).map_err(ApiError::bad_request)?,
+            },
+            &plan.commitment,
+        )
         .await
-        .map_err(ApiError::bad_request)?;
+        .map_err(ApiError::conflict)?;
     serde_json::to_value(plan)
         .map(Json)
         .map_err(ApiError::bad_request)
@@ -585,20 +588,23 @@ async fn holdout_open(
     let report = open_holdout(&state.replay, &request).map_err(ApiError::bad_request)?;
     state
         .audit
-        .append(AuditCaptureRequest {
-            kind: "holdout_open".into(),
-            mode: "system".into(),
-            symbol: plan.symbol.clone(),
-            snapshot_id: None,
-            payload: serde_json::json!({
-                "commitment": plan.commitment,
-                "strategy_id": plan.strategy_id,
-                "holdout_start": plan.holdout_start,
-                "holdout_end": plan.holdout_end,
-            }),
-        })
+        .append_holdout_open_once(
+            AuditCaptureRequest {
+                kind: "holdout_open".into(),
+                mode: "system".into(),
+                symbol: plan.symbol.clone(),
+                snapshot_id: None,
+                payload: serde_json::json!({
+                    "commitment": plan.commitment,
+                    "strategy_id": plan.strategy_id,
+                    "holdout_start": plan.holdout_start,
+                    "holdout_end": plan.holdout_end,
+                }),
+            },
+            &request.commitment,
+        )
         .await
-        .map_err(ApiError::bad_request)?;
+        .map_err(ApiError::conflict)?;
 
     serde_json::to_value(report)
         .map(Json)
