@@ -509,7 +509,6 @@ mod tests {
             .await
             .unwrap();
 
-        assert!(!store.holdout_opened("commit-1").await.unwrap());
         assert_eq!(
             store
                 .active_holdout_seals_for_symbol("SPY")
@@ -533,7 +532,11 @@ mod tests {
             .await
             .unwrap();
 
-        assert!(store.holdout_opened("commit-1").await.unwrap());
+        let recent = store.recent_records(10).await.unwrap();
+        assert!(recent.iter().any(|record| {
+            record.kind == "holdout_open"
+                && record.payload.get("commitment").and_then(Value::as_str) == Some("commit-1")
+        }));
         assert!(
             store
                 .active_holdout_seals_for_symbol("SPY")
