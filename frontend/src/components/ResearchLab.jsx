@@ -469,6 +469,7 @@ export default function ResearchLab({ catalog, defaultSymbol, pricingMode, deale
       <div className="research-section-title"><strong>Backtest v2</strong><span>{result.manifest?.strategy_id}</span></div>
       <div className="compact-metrics">
         <Metric label="Trades" value={result.stats.trades} />
+        <Metric label="Completion" value={formatPct(result.completion_rate_pct)} detail={`${result.completed_trades}/${result.attempted_entries} entry sessions`} />
         <Metric label="Win rate" value={formatPct(result.stats.win_rate * 100)} />
         <Metric label="Net P/L" value={formatMoney(result.stats.total_pnl)} tone={result.stats.total_pnl >= 0 ? 'up' : 'down'} />
         <Metric label="Avg P/L" value={formatMoney(result.stats.average_pnl)} />
@@ -562,6 +563,7 @@ export default function ResearchLab({ catalog, defaultSymbol, pricingMode, deale
       <div className="research-section-title"><strong>Rolling Backtest</strong><span>{rolling.rolling_strategy_id}</span></div>
       <div className="compact-metrics">
         <Metric label="Campaigns" value={rolling.stats.campaigns} />
+        <Metric label="Completion" value={formatPct(rolling.completion_rate_pct)} detail={`${rolling.completed_campaigns}/${rolling.attempted_campaigns} attempts`} />
         <Metric label="Total rolls" value={rolling.stats.total_rolls} />
         <Metric label="Win rate" value={formatPct(rolling.stats.win_rate * 100)} />
         <Metric label="Net P/L" value={formatMoney(rolling.stats.total_pnl)} tone={rolling.stats.total_pnl >= 0 ? 'up' : 'down'} />
