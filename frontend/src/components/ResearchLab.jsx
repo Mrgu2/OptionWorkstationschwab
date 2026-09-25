@@ -300,9 +300,10 @@ export default function ResearchLab({ catalog, defaultSymbol, pricingMode, deale
   }
 
   const openHoldout = async () => {
-    if (!holdoutPlan || !holdoutPlanInput) return
+    if (!holdoutPlan) return
+    const sealedInput = holdoutPlanInput || clone(currentHoldoutInput)
     const data = await run('Opening final holdout once', () => apiJson('/api/research/holdout/open', 'POST', {
-      plan: holdoutPlanInput,
+      plan: sealedInput,
       commitment: holdoutPlan.commitment,
     }))
     if (data) setHoldoutResult(data)
@@ -482,7 +483,7 @@ export default function ResearchLab({ catalog, defaultSymbol, pricingMode, deale
         </div>
         <div className="research-actions">
           <button onClick={sealHoldout} disabled={Boolean(status)}>Seal holdout</button>
-          <button className="primary" onClick={openHoldout} disabled={Boolean(status) || !holdoutPlan || !holdoutPlanInput || Boolean(holdoutResult)}>Open sealed once</button>
+          <button className="primary" onClick={openHoldout} disabled={Boolean(status) || !holdoutPlan || Boolean(holdoutResult)}>Open sealed once</button>
           <button onClick={exportResearch}>Export research JSON</button>
         </div>
         {holdoutPlan && <div className="holdout-seal">
@@ -493,7 +494,7 @@ export default function ResearchLab({ catalog, defaultSymbol, pricingMode, deale
           {holdoutPlan.data_fingerprint && <span>Data {holdoutPlan.data_fingerprint.digest.slice(0, 16)}… · {holdoutPlan.data_fingerprint.files} files</span>}
           {holdoutPlan.engine_contract && <span>Engine {holdoutPlan.engine_contract}</span>}
           {holdoutPlanStale && <span className="down">Current editor differs from the seal. Opening uses the original sealed strategy, not the edited draft.</span>}
-          {!holdoutPlanInput && <span className="down">Legacy seal found without a stored strategy definition. Recreate the original strategy inputs to open it.</span>}
+          {!holdoutPlanInput && <span className="down">Legacy seal found without a stored strategy definition. Opening will use the current editor, which must recreate the original strategy exactly.</span>}
         </div>}
 
         <div className="research-section-title portfolio-title"><strong>Rolling engine</strong><span>close old contracts, reopen by target delta</span></div>
