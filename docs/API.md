@@ -185,8 +185,9 @@ active fold window so an exit cannot consume prices from a later fold.
 
 `POST /api/research/holdout/seal`
 
-Reserves the final N trading sessions for one frozen strategy definition. New
-seals use protocol `untouched-holdout-v2`. The SHA-256 commitment binds the
+Reserves the final N trading sessions for one frozen strategy definition.
+`holdout_sessions` must be larger than the strategy's maximum holding horizon
+so the reserved sample can contain a complete full-horizon trade. New seals use protocol `untouched-holdout-v2`. The SHA-256 commitment binds the
 strategy ID, resolved development and holdout boundaries, a SHA-256 content
 fingerprint of the replay Parquet files inside the holdout window, the configured
 risk-free rate, and the declared research-engine contract. The response exposes
