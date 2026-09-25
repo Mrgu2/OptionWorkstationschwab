@@ -72,6 +72,10 @@ pub struct RollingReport {
     pub roll_dte_lte: i64,
     pub roll_target_dte: i64,
     pub max_rolls: u32,
+    pub attempted_campaigns: usize,
+    pub completed_campaigns: usize,
+    pub skipped_campaigns: usize,
+    pub completion_rate_pct: f64,
     pub stats: RollingStats,
     pub skipped: Vec<String>,
     pub campaigns: Vec<RollingCampaign>,
@@ -134,11 +138,13 @@ pub fn run_rolling_backtest(
 
     let mut campaigns = Vec::new();
     let mut skipped = Vec::new();
+    let mut attempted_campaigns = 0usize;
 
     for (index, entry_date) in dates.iter().enumerate() {
         if index + 1 >= dates.len() {
             break;
         }
+        attempted_campaigns += 1;
         let Some(initial_expiration) =
             select_expiration(store, &symbol, entry_date, request.base.target_dte)
         else {
@@ -394,6 +400,13 @@ pub fn run_rolling_backtest(
     }
 
     let stats = summarize(&campaigns);
+    let completed_campaigns = campaigns.len();
+    let skipped_campaigns = attempted_campaigns.saturating_sub(completed_campaigns);
+    let completion_rate_pct = if attempted_campaigns == 0 {
+        0.0
+    } else {
+        completed_campaigns as f64 / attempted_campaigns as f64 * 100.0
+    };
     Ok(RollingReport {
         engine: "rolling_backtest_v1",
         rolling_strategy_id,
@@ -402,6 +415,10 @@ pub fn run_rolling_backtest(
         roll_dte_lte: request.roll_dte_lte,
         roll_target_dte: request.roll_target_dte,
         max_rolls: request.max_rolls,
+        attempted_campaigns,
+        completed_campaigns,
+        skipped_campaigns,
+        completion_rate_pct,
         stats,
         skipped,
         campaigns,
