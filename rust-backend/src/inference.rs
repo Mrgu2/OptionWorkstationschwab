@@ -3,7 +3,7 @@ use sha2::{Digest, Sha256};
 
 use crate::{
     backtest::{BacktestRequest, run_backtest},
-    manifest::freeze_manifest,
+    manifest::{freeze_manifest, unique_strategy_ids},
     replay::ReplayStore,
 };
 
