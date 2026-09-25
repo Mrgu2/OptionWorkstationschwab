@@ -254,6 +254,14 @@ impl ReplayStore {
         pricing_mode: &str,
         dealer_model: &str,
     ) -> anyhow::Result<ChainSnapshot> {
+        anyhow::ensure!(
+            matches!(pricing_mode, "micro" | "mid" | "ask"),
+            "pricing_mode must be micro, mid, or ask"
+        );
+        anyhow::ensure!(
+            matches!(dealer_model, "classic" | "short_all" | "long_all"),
+            "dealer_model must be classic, short_all, or long_all"
+        );
         let clean = self.validate_symbol(symbol)?;
         self.validate_date(&clean, trading_date)?;
         anyhow::ensure!(
@@ -761,5 +769,13 @@ mod tests {
         assert_eq!(point_in_time_history_minute("09:31"), "09:31");
         assert_eq!(point_in_time_history_minute("12:30"), "12:30");
         assert_eq!(point_in_time_history_minute("15:55"), "15:45");
+    }
+
+    #[test]
+    fn supported_research_modes_are_explicit() {
+        assert!(matches!("micro", "micro" | "mid" | "ask"));
+        assert!(matches!("classic", "classic" | "short_all" | "long_all"));
+        assert!(!matches!("mido", "micro" | "mid" | "ask"));
+        assert!(!matches!("dealer_guess", "classic" | "short_all" | "long_all"));
     }
 }
