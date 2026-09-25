@@ -118,6 +118,10 @@ pub struct BacktestReport {
     pub symbol: String,
     pub request_fingerprint: String,
     pub manifest: StrategyManifest,
+    pub attempted_entries: usize,
+    pub completed_trades: usize,
+    pub skipped_entries: usize,
+    pub completion_rate_pct: f64,
     pub assumptions: Vec<String>,
     pub skipped: Vec<String>,
     pub stats: BacktestStats,
@@ -169,11 +173,13 @@ pub fn run_backtest(
 
     let mut trades = Vec::new();
     let mut skipped = Vec::new();
+    let mut attempted_entries = 0usize;
 
     for (index, entry_date) in dates.iter().enumerate() {
         if index + 1 >= dates.len() {
             break;
         }
+        attempted_entries += 1;
 
         let expiration = match select_expiration(store, &symbol, entry_date, request.target_dte) {
             Some(value) => value,
@@ -354,11 +360,23 @@ pub fn run_backtest(
         request.end_date.as_deref().unwrap_or("last"),
     );
 
+    let completed_trades = trades.len();
+    let skipped_entries = attempted_entries.saturating_sub(completed_trades);
+    let completion_rate_pct = if attempted_entries == 0 {
+        0.0
+    } else {
+        completed_trades as f64 / attempted_entries as f64 * 100.0
+    };
+
     Ok(BacktestReport {
         engine: "point_in_time_v2",
         symbol,
         request_fingerprint: fingerprint,
         manifest,
+        attempted_entries,
+        completed_trades,
+        skipped_entries,
+        completion_rate_pct,
         assumptions: vec![
             "entry contracts are selected only from the entry snapshot".into(),
             "buys execute at ask and sells execute at bid".into(),
@@ -413,6 +431,17 @@ pub(crate) fn validate_request(request: &BacktestRequest) -> anyhow::Result<()> 
     anyhow::ensure!(
         (0..=1000).contains(&request.target_dte),
         "target_dte must be between 0 and 1000"
+    );
+    anyhow::ensure!(
+        matches!(request.pricing_mode.as_str(), "micro" | "mid" | "ask"),
+        "pricing_mode must be micro, mid, or ask"
+    );
+    anyhow::ensure!(
+        matches!(
+            request.dealer_model.as_str(),
+            "classic" | "short_all" | "long_all"
+        ),
+        "dealer_model must be classic, short_all, or long_all"
     );
     anyhow::ensure!(
         request.costs.commission_per_contract.is_finite()
@@ -740,6 +769,22 @@ mod tests {
             choose_exit_reason(0.0, 100.0, 2, 2, &request).as_deref(),
             Some("dte_exit")
         );
+    }
+
+    #[test]
+    fn request_rejects_unknown_pricing_and_dealer_modes() {
+        let mut request = test_request();
+        request.legs = vec![BacktestLegRule {
+            right: "PUT".into(),
+            side: "BUY".into(),
+            target_delta: 0.30,
+            ratio: 1,
+        }];
+        request.pricing_mode = "mido".into();
+        assert!(validate_request(&request).is_err());
+        request.pricing_mode = "mid".into();
+        request.dealer_model = "dealer_guess".into();
+        assert!(validate_request(&request).is_err());
     }
 
     #[test]
