@@ -1,6 +1,7 @@
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     fs::File,
+    io::Read,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -14,7 +15,9 @@ use chrono::{DateTime, Datelike, NaiveDate, TimeZone, Utc};
 use chrono_tz::America::New_York;
 use moka::sync::Cache;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 
 use crate::{
     analytics::{ChainBuild, build_chain, build_surface},
@@ -23,6 +26,14 @@ use crate::{
 };
 
 type OiMap = HashMap<(i64, String), i64>;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ReplayDataFingerprint {
+    pub algorithm: String,
+    pub digest: String,
+    pub files: usize,
+    pub bytes: u64,
+}
 
 #[derive(Clone)]
 pub struct ReplayStore {
@@ -56,6 +67,94 @@ impl ReplayStore {
 
     pub fn root(&self) -> &Path {
         &self.root
+    }
+
+    pub fn risk_free_rate(&self) -> f64 {
+        self.risk_free_rate
+    }
+
+    pub fn clear_caches(&self) {
+        self.stock_cache.invalidate_all();
+        self.quote_cache.invalidate_all();
+        self.oi_cache.invalidate_all();
+    }
+
+    pub fn data_fingerprint(
+        &self,
+        symbol: &str,
+        start_date: &str,
+        end_date: &str,
+    ) -> anyhow::Result<ReplayDataFingerprint> {
+        let clean = self.validate_symbol(symbol)?;
+        let start = NaiveDate::parse_from_str(start_date, "%Y-%m-%d")
+            .context("invalid fingerprint start date")?;
+        let end =
+            NaiveDate::parse_from_str(end_date, "%Y-%m-%d").context("invalid fingerprint end date")?;
+        anyhow::ensure!(start <= end, "fingerprint start date must not exceed end date");
+
+        let mut paths = Vec::new();
+        for date in self.dates(&clean) {
+            let parsed = NaiveDate::parse_from_str(&date, "%Y-%m-%d")
+                .with_context(|| format!("invalid replay partition date {date}"))?;
+            if parsed < start || parsed > end {
+                continue;
+            }
+
+            let underlying = self
+                .symbol_dir(&clean)
+                .join(format!("date={date}/ohlc.parquet"));
+            if underlying.is_file() {
+                paths.push(underlying);
+            }
+            collect_regular_files(&self.option_day_dir(&clean, &date), &mut paths)?;
+        }
+
+        paths.sort_by(|left, right| {
+            relative_path(&self.root, left).cmp(&relative_path(&self.root, right))
+        });
+        anyhow::ensure!(
+            !paths.is_empty(),
+            "no replay data files found for {clean} between {start_date} and {end_date}"
+        );
+
+        let mut hasher = Sha256::new();
+        let mut total_bytes = 0u64;
+        for path in &paths {
+            let relative = relative_path(&self.root, path);
+            let metadata =
+                std::fs::metadata(path).with_context(|| format!("stat {}", path.display()))?;
+            let size = metadata.len();
+            hasher.update((relative.len() as u64).to_le_bytes());
+            hasher.update(relative.as_bytes());
+            hasher.update(size.to_le_bytes());
+
+            let mut file = File::open(path).with_context(|| format!("open {}", path.display()))?;
+            let mut buffer = [0u8; 64 * 1024];
+            let mut read_bytes = 0u64;
+            loop {
+                let count = file
+                    .read(&mut buffer)
+                    .with_context(|| format!("read {}", path.display()))?;
+                if count == 0 {
+                    break;
+                }
+                hasher.update(&buffer[..count]);
+                read_bytes += count as u64;
+            }
+            anyhow::ensure!(
+                read_bytes == size,
+                "replay data file changed while fingerprinting: {}",
+                path.display()
+            );
+            total_bytes = total_bytes.saturating_add(read_bytes);
+        }
+
+        Ok(ReplayDataFingerprint {
+            algorithm: "sha256-content-v1".into(),
+            digest: hex::encode(hasher.finalize()),
+            files: paths.len(),
+            bytes: total_bytes,
+        })
     }
 
     fn symbol_dir(&self, symbol: &str) -> PathBuf {
@@ -548,6 +647,35 @@ fn replay_as_of(trading_date: &str, minute: &str) -> anyhow::Result<DateTime<Utc
         .ok_or_else(|| anyhow!("Invalid replay time"))
 }
 
+fn collect_regular_files(root: &Path, paths: &mut Vec<PathBuf>) -> anyhow::Result<()> {
+    if !root.exists() {
+        return Ok(());
+    }
+    let mut entries = std::fs::read_dir(root)
+        .with_context(|| format!("read directory {}", root.display()))?
+        .collect::<Result<Vec<_>, _>>()?;
+    entries.sort_by_key(|entry| entry.file_name());
+    for entry in entries {
+        let path = entry.path();
+        let file_type = entry
+            .file_type()
+            .with_context(|| format!("read file type {}", path.display()))?;
+        if file_type.is_dir() {
+            collect_regular_files(&path, paths)?;
+        } else if file_type.is_file() {
+            paths.push(path);
+        }
+    }
+    Ok(())
+}
+
+fn relative_path(root: &Path, path: &Path) -> String {
+    path.strip_prefix(root)
+        .unwrap_or(path)
+        .to_string_lossy()
+        .replace('\\', "/")
+}
+
 fn partition_values(root: &Path, prefix: &str) -> Vec<String> {
     let mut values = std::fs::read_dir(root)
         .ok()
@@ -762,7 +890,61 @@ fn read_option_quotes(
 
 #[cfg(test)]
 mod tests {
-    use super::point_in_time_history_minute;
+    use std::{fs, path::PathBuf};
+
+    use super::{ReplayStore, point_in_time_history_minute};
+
+    fn fingerprint_fixture() -> PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "option-workstation-fingerprint-{}-{}",
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        ));
+        fs::create_dir_all(
+            root.join("underlying/symbol=SPY/date=2026-09-24"),
+        )
+        .unwrap();
+        fs::create_dir_all(
+            root.join("options/symbol=SPY/date=2026-09-24/expiration=2026-10-16"),
+        )
+        .unwrap();
+        fs::write(
+            root.join("underlying/symbol=SPY/date=2026-09-24/ohlc.parquet"),
+            b"underlying-v1",
+        )
+        .unwrap();
+        fs::write(
+            root.join(
+                "options/symbol=SPY/date=2026-09-24/expiration=2026-10-16/quote_1m.parquet",
+            ),
+            b"quotes-v1",
+        )
+        .unwrap();
+        root
+    }
+
+    #[test]
+    fn data_fingerprint_changes_when_replay_bytes_change() {
+        let root = fingerprint_fixture();
+        let store = ReplayStore::new(root.clone(), 0.04);
+        let before = store
+            .data_fingerprint("SPY", "2026-09-24", "2026-09-24")
+            .unwrap();
+        fs::write(
+            root.join(
+                "options/symbol=SPY/date=2026-09-24/expiration=2026-10-16/quote_1m.parquet",
+            ),
+            b"quotes-v2",
+        )
+        .unwrap();
+        let after = store
+            .data_fingerprint("SPY", "2026-09-24", "2026-09-24")
+            .unwrap();
+        assert_ne!(before.digest, after.digest);
+        assert_eq!(before.files, 2);
+        assert_eq!(after.files, 2);
+        let _ = fs::remove_dir_all(root);
+    }
 
     #[test]
     fn historical_iv_never_looks_ahead_of_early_replay_time() {
