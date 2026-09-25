@@ -148,6 +148,10 @@ struct SurfaceQuery {
     minute: String,
     #[serde(default = "default_max_dte")]
     max_dte: i64,
+    #[serde(default = "default_pricing_mode")]
+    pricing_mode: String,
+    #[serde(default = "default_dealer_model")]
+    dealer_model: String,
 }
 
 #[derive(Deserialize)]
@@ -157,6 +161,10 @@ struct VolatilityQuery {
     trading_date: String,
     minute: String,
     expiration: String,
+    #[serde(default = "default_pricing_mode")]
+    pricing_mode: String,
+    #[serde(default = "default_dealer_model")]
+    dealer_model: String,
 }
 
 #[derive(Deserialize)]
@@ -343,6 +351,8 @@ async fn surface(
             &query.trading_date,
             &query.minute,
             query.max_dte,
+            &query.pricing_mode,
+            &query.dealer_model,
         )
         .and_then(|value| serde_json::to_value(value).map_err(anyhow::Error::from))
         .map(Json)
@@ -361,6 +371,8 @@ async fn volatility_context(
             &query.trading_date,
             &query.minute,
             &query.expiration,
+            &query.pricing_mode,
+            &query.dealer_model,
         )
         .map(Json)
         .map_err(ApiError::bad_request)
