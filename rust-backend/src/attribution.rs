@@ -135,12 +135,30 @@ fn attribute_chains(
         let contracts = leg.ratio as f64 * quantity as f64;
         let multiplier = sign * contracts * 100.0;
 
+        anyhow::ensure!(
+            entry_row.ask >= entry_row.bid
+                && exit_row.ask >= exit_row.bid
+                && entry_row.ask > 0.0
+                && exit_row.ask > 0.0,
+            "invalid NBBO for attribution contract {}",
+            entry_row.symbol
+        );
         let entry_exec = if sign > 0.0 {
             entry_row.ask
         } else {
+            anyhow::ensure!(
+                entry_row.bid > 0.0,
+                "short entry has no executable bid for {}",
+                entry_row.symbol
+            );
             entry_row.bid
         };
         let exit_exec = if sign > 0.0 {
+            anyhow::ensure!(
+                exit_row.bid > 0.0,
+                "long exit has no executable bid for {}",
+                exit_row.symbol
+            );
             exit_row.bid
         } else {
             exit_row.ask
