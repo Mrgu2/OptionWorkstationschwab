@@ -183,6 +183,10 @@ active fold window so an exit cannot consume prices from a later fold.
 
 ### Final untouched holdout
 
+`GET /api/research/holdout/active?symbol=SPY`
+
+Returns the currently unopened seal for the symbol, or `null` when no active seal exists. The bundled UI uses this to recover a sealed experiment after a browser reload. V2 seals include the frozen strategy definition, so opening the original experiment does not depend on whatever draft happens to be in the editor later.
+
 `POST /api/research/holdout/seal`
 
 Reserves the final N trading sessions for one frozen strategy definition.
