@@ -74,6 +74,7 @@ pub fn run_inference(
         "alpha must be in (0, 0.5)"
     );
     anyhow::ensure!(request.min_trades >= 3, "min_trades must be at least 3");
+    unique_strategy_ids(&request.candidates)?;
 
     let mut candidates = Vec::with_capacity(request.candidates.len());
     let mut eligible_indices = Vec::new();
