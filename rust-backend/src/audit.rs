@@ -216,18 +216,6 @@ impl AuditStore {
         records.reverse();
         Ok(records)
     }
-    pub async fn holdout_opened(&self, commitment: &str) -> anyhow::Result<bool> {
-        let _guard = self.lock.lock().await;
-        Ok(read_records(&self.path)?.into_iter().any(|record| {
-            record.kind == "holdout_open"
-                && record
-                    .payload
-                    .get("commitment")
-                    .and_then(Value::as_str)
-                    .is_some_and(|value| value == commitment)
-        }))
-    }
-
     pub async fn active_holdout_seals_for_symbol(
         &self,
         symbol: &str,
