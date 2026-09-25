@@ -4,7 +4,7 @@ use sha2::{Digest, Sha256};
 
 use crate::{
     backtest::{BacktestReport, BacktestRequest, run_backtest, validate_request},
-    manifest::freeze_manifest,
+    manifest::{StrategyDefinition, freeze_manifest},
     replay::{ReplayDataFingerprint, ReplayStore},
 };
 
@@ -34,6 +34,8 @@ pub struct HoldoutPlan {
     pub risk_free_rate: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub engine_contract: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub strategy_definition: Option<StrategyDefinition>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -167,6 +169,7 @@ pub fn plan_holdout(
         data_fingerprint: Some(data_fingerprint),
         risk_free_rate: Some(risk_free_rate),
         engine_contract: Some(ENGINE_CONTRACT.into()),
+        strategy_definition: Some(manifest.definition),
     })
 }
 
