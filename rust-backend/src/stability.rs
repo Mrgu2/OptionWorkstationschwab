@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     backtest::{BacktestRequest, BacktestStats, run_backtest},
-    manifest::freeze_manifest,
+    manifest::{freeze_manifest, unique_strategy_ids},
     replay::ReplayStore,
 };
 
@@ -61,6 +61,7 @@ pub fn analyze_stability(
         "stability analysis requires 1-100 candidate strategies"
     );
     anyhow::ensure!(request.min_trades >= 1, "min_trades must be at least 1");
+    unique_strategy_ids(&request.candidates)?;
 
     let symbol = store.validate_symbol(&request.candidates[0].symbol)?;
     let mut rows = Vec::with_capacity(request.candidates.len());
