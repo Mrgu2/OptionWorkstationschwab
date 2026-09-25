@@ -175,6 +175,11 @@ struct ReplaySnapshotQuery {
 }
 
 #[derive(Deserialize)]
+struct HoldoutActiveQuery {
+    symbol: String,
+}
+
+#[derive(Deserialize)]
 struct AuditListQuery {
     #[serde(default = "default_audit_limit")]
     limit: usize,
@@ -541,6 +546,26 @@ async fn strategy_manifest(Json(request): Json<BacktestRequest>) -> Result<Json<
         .map_err(ApiError::bad_request)
 }
 
+async fn holdout_active(
+    State(state): State<AppState>,
+    Query(query): Query<HoldoutActiveQuery>,
+) -> Result<Json<Value>, ApiError> {
+    let symbol = state
+        .replay
+        .validate_symbol(&query.symbol)
+        .map_err(ApiError::bad_request)?;
+    let seals = state
+        .audit
+        .active_holdout_seals_for_symbol(&symbol)
+        .await
+        .map_err(ApiError::bad_request)?;
+    let active = seals.last().cloned().unwrap_or(Value::Null);
+    Ok(Json(json!({
+        "symbol": symbol,
+        "active": active,
+    })))
+}
+
 async fn holdout_seal(
     State(state): State<AppState>,
     Json(request): Json<HoldoutPlanRequest>,
@@ -871,6 +896,7 @@ fn app(state: AppState, frontend_dist: PathBuf) -> Router {
         .route("/api/strategy/analyze", post(strategy_analyze))
         .route("/api/research/backtest", post(backtest_run))
         .route("/api/research/manifest", post(strategy_manifest))
+        .route("/api/research/holdout/active", get(holdout_active))
         .route("/api/research/holdout/seal", post(holdout_seal))
         .route("/api/research/holdout/open", post(holdout_open))
         .route("/api/research/attribution", post(attribution_run))
