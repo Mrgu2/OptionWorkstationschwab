@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -48,6 +50,20 @@ pub fn freeze_manifest(request: &BacktestRequest) -> anyhow::Result<StrategyMani
     })
 }
 
+pub fn unique_strategy_ids(requests: &[BacktestRequest]) -> anyhow::Result<Vec<String>> {
+    let mut seen = HashSet::with_capacity(requests.len());
+    let mut ids = Vec::with_capacity(requests.len());
+    for request in requests {
+        let id = freeze_manifest(request)?.strategy_id;
+        anyhow::ensure!(
+            seen.insert(id.clone()),
+            "duplicate strategy definition in candidate family: {id}"
+        );
+        ids.push(id);
+    }
+    Ok(ids)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -73,6 +89,14 @@ mod tests {
                 ratio: 1,
             }],
         }
+    }
+
+    #[test]
+    fn duplicate_strategy_family_is_rejected() {
+        let a = request(None, None, 0.30);
+        let mut b = request(Some("2026-01-01"), Some("2026-02-01"), 0.30);
+        b.symbol = "SPY".into();
+        assert!(unique_strategy_ids(&[a, b]).is_err());
     }
 
     #[test]
