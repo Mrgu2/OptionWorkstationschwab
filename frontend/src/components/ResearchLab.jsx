@@ -455,9 +455,12 @@ export default function ResearchLab({ catalog, defaultSymbol, pricingMode, deale
           <button onClick={exportResearch}>Export research JSON</button>
         </div>
         {holdoutPlan && <div className="holdout-seal">
+          <span>Protocol {holdoutPlan.protocol_version}</span>
           <span>Commitment {holdoutPlan.commitment.slice(0, 20)}…</span>
           <span>Development through {holdoutPlan.development_end}</span>
           <span>Holdout {holdoutPlan.holdout_start} → {holdoutPlan.holdout_end}</span>
+          {holdoutPlan.data_fingerprint && <span>Data {holdoutPlan.data_fingerprint.digest.slice(0, 16)}… · {holdoutPlan.data_fingerprint.files} files</span>}
+          {holdoutPlan.engine_contract && <span>Engine {holdoutPlan.engine_contract}</span>}
           {holdoutPlanStale && <span className="down">Strategy or sample settings changed. Seal again before opening.</span>}
         </div>}
 
